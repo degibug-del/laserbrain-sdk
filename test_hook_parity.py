@@ -1,0 +1,76 @@
+#!/usr/bin/env python3
+"""test_hook_parity.py — the hook's copy of the progress rules must match observe.py's.
+
+The Claude Code hook cannot import laserbrain: it runs against whatever python3 is on
+PATH, and that interpreter has the PUBLISHED version from PyPI while observe.py lives in
+the working tree. An import there fails on version skew, inside a process whose entire
+job is to never break. So the rules are duplicated — deliberately, and dangerously.
+
+This is the test that makes the duplication safe. It runs both implementations over
+randomised traces and fails on the first disagreement. If it goes red, the two copies
+have drifted apart, which is precisely the failure mode the product is named after.
+"""
+import random, pathlib, importlib.util
+from laserbrain.observe import Observer, _WINDOW, _REPEAT, _FAILS
+
+HOOK = pathlib.Path.home() / 'Library/Mobile Documents/com~apple~CloudDocs/phronesis/lasermind/hooks/lb_coverage.py'
+
+ok = True
+
+
+def show(name, passed, detail=''):
+    global ok
+    ok = ok and passed
+    print(f"  {'✓' if passed else '✗'} {name}" + (f"  — {detail}" if detail else ''))
+
+
+if not HOOK.exists():
+    show('the hook exists', False, str(HOOK))
+    raise SystemExit(1)
+
+spec = importlib.util.spec_from_file_location('lb_hook', HOOK)
+hook = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(hook)
+
+show('the constants agree',
+     (hook.WINDOW, hook.REPEAT, hook.FAILS) == (_WINDOW, _REPEAT, _FAILS),
+     f'hook={(hook.WINDOW, hook.REPEAT, hook.FAILS)} observe={(_WINDOW, _REPEAT, _FAILS)}')
+
+random.seed(20260724)
+TOOLS = ['Bash', 'Read', 'Edit']
+CMDS = ['build', 'test', 'lint']
+mismatch = None
+checked = 0
+for trial in range(400):
+    obs = Observer('a fixed goal')
+    events = []
+    for _ in range(random.randint(1, 14)):
+        tool = random.choice(TOOLS)
+        args = {'command': random.choice(CMDS)}
+        good = random.random() > 0.35
+        obs.record(tool, args, ok=good)
+        import json
+        events.append({'sig': f"{tool}|{json.dumps(args, sort_keys=True, default=str)[:400]}", 'ok': good})
+        checked += 1
+        a, b = obs.progress(), hook.infer_progress(events)
+        if a != b and mismatch is None:
+            mismatch = (trial, a, b, [e['sig'] for e in events], [e['ok'] for e in events])
+
+show('both implementations agree on every randomised trace',
+     mismatch is None, f'{checked} states compared' if mismatch is None else f'first disagreement: {mismatch}')
+
+# the specific behaviour that motivated the last change
+obs = Observer('g'); ev = []
+import json
+def both(tool, cmd, good):
+    obs.record(tool, {'command': cmd}, ok=good)
+    ev.append({'sig': f"{tool}|{json.dumps({'command': cmd}, sort_keys=True)[:400]}", 'ok': good})
+    return obs.progress(), hook.infer_progress(ev)
+
+for _ in range(3):
+    both('Bash', 'npm run build', False)
+show('three identical calls read as circling in both', both('Bash', 'npm run build', False) == ('circling', 'circling'))
+show('one different call recovers immediately in both', both('Bash', 'echo hi', True) == ('advancing', 'advancing'))
+
+print('\n  ' + ('PASS' if ok else 'FAIL'))
+raise SystemExit(0 if ok else 1)

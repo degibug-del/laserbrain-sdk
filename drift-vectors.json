@@ -1,0 +1,524 @@
+{
+ "source": "python laserbrain",
+ "vectors": [
+  {
+   "seq": 0,
+   "steps": [
+    {
+     "in": {
+      "goal": "ship the sky billboard",
+      "progress": "advancing",
+      "distance": 5
+     },
+     "out": {
+      "drifting": false,
+      "reason": "grounded",
+      "phi": 0.0
+     }
+    },
+    {
+     "in": {
+      "goal": "ship the sky billboard",
+      "progress": "advancing",
+      "distance": 4
+     },
+     "out": {
+      "drifting": false,
+      "reason": "advancing",
+      "phi": 0.03
+     }
+    }
+   ]
+  },
+  {
+   "seq": 1,
+   "steps": [
+    {
+     "in": {
+      "goal": "ship the sky billboard",
+      "progress": "advancing",
+      "distance": 5
+     },
+     "out": {
+      "drifting": false,
+      "reason": "grounded",
+      "phi": 0.0
+     }
+    },
+    {
+     "in": {
+      "goal": "refactor the parser",
+      "progress": "advancing",
+      "distance": 5
+     },
+     "out": {
+      "drifting": true,
+      "reason": "goal-drift",
+      "phi": 0.5
+     }
+    }
+   ]
+  },
+  {
+   "seq": 2,
+   "steps": [
+    {
+     "in": {
+      "goal": "ship the sky billboard",
+      "progress": "advancing",
+      "distance": 5
+     },
+     "out": {
+      "drifting": false,
+      "reason": "grounded",
+      "phi": 0.0
+     }
+    },
+    {
+     "in": {
+      "goal": "ship the sky billboard",
+      "progress": "stuck",
+      "distance": 5
+     },
+     "out": {
+      "drifting": false,
+      "reason": "self-report:stuck",
+      "phi": 0.2
+     }
+    }
+   ]
+  },
+  {
+   "seq": 3,
+   "steps": [
+    {
+     "in": {
+      "goal": "ship the sky billboard",
+      "progress": "advancing",
+      "distance": 5
+     },
+     "out": {
+      "drifting": false,
+      "reason": "grounded",
+      "phi": 0.0
+     }
+    },
+    {
+     "in": {
+      "goal": "ship the sky billboard",
+      "progress": "circling",
+      "distance": 0
+     },
+     "out": {
+      "drifting": false,
+      "reason": "self-report:circling",
+      "phi": 0.35
+     }
+    }
+   ]
+  },
+  {
+   "seq": 4,
+   "steps": [
+    {
+     "in": {
+      "goal": "ship the sky billboard",
+      "progress": "advancing",
+      "distance": 5
+     },
+     "out": {
+      "drifting": false,
+      "reason": "grounded",
+      "phi": 0.0
+     }
+    },
+    {
+     "in": {
+      "goal": "",
+      "progress": "advancing",
+      "distance": 5
+     },
+     "out": {
+      "drifting": true,
+      "reason": "ungrammatical",
+      "phi": 0.0
+     }
+    }
+   ]
+  },
+  {
+   "seq": 5,
+   "steps": [
+    {
+     "in": {
+      "goal": "ship the sky billboard",
+      "progress": "advancing",
+      "distance": 5
+     },
+     "out": {
+      "drifting": false,
+      "reason": "grounded",
+      "phi": 0.0
+     }
+    },
+    {
+     "in": {
+      "goal": "ship the sky billboard",
+      "progress": "bogus",
+      "distance": 5
+     },
+     "out": {
+      "drifting": true,
+      "reason": "ungrammatical",
+      "phi": 0.0
+     }
+    }
+   ]
+  },
+  {
+   "seq": 6,
+   "steps": [
+    {
+     "in": {
+      "goal": "ship the sky billboard",
+      "progress": "advancing",
+      "distance": 9
+     },
+     "out": {
+      "drifting": false,
+      "reason": "grounded",
+      "phi": 0.0
+     }
+    },
+    {
+     "in": {
+      "goal": "ship the sky billboard",
+      "progress": "advancing",
+      "distance": 9
+     },
+     "out": {
+      "drifting": false,
+      "reason": "advancing",
+      "phi": 0.0
+     }
+    },
+    {
+     "in": {
+      "goal": "ship the sky billboard",
+      "progress": "advancing",
+      "distance": 9
+     },
+     "out": {
+      "drifting": false,
+      "reason": "advancing",
+      "phi": 0.0
+     }
+    },
+    {
+     "in": {
+      "goal": "ship the sky billboard",
+      "progress": "advancing",
+      "distance": 9
+     },
+     "out": {
+      "drifting": false,
+      "reason": "advancing",
+      "phi": 0.0
+     }
+    },
+    {
+     "in": {
+      "goal": "ship the sky billboard",
+      "progress": "advancing",
+      "distance": 9
+     },
+     "out": {
+      "drifting": false,
+      "reason": "stalled",
+      "phi": 0.0
+     }
+    },
+    {
+     "in": {
+      "goal": "ship the sky billboard",
+      "progress": "advancing",
+      "distance": 9
+     },
+     "out": {
+      "drifting": true,
+      "reason": "stalled",
+      "phi": 0.0
+     }
+    },
+    {
+     "in": {
+      "goal": "ship the sky billboard",
+      "progress": "advancing",
+      "distance": 9
+     },
+     "out": {
+      "drifting": true,
+      "reason": "stalled",
+      "phi": 0.0
+     }
+    }
+   ]
+  },
+  {
+   "seq": 7,
+   "steps": [
+    {
+     "in": {
+      "goal": "ship the sky billboard",
+      "progress": "advancing",
+      "distance": 5
+     },
+     "out": {
+      "drifting": false,
+      "reason": "grounded",
+      "phi": 0.0
+     }
+    },
+    {
+     "in": {
+      "goal": "SHIP THE SKY BILLBOARD",
+      "progress": "advancing",
+      "distance": 5
+     },
+     "out": {
+      "drifting": false,
+      "reason": "advancing",
+      "phi": 0.0
+     }
+    }
+   ]
+  },
+  {
+   "seq": 8,
+   "steps": [
+    {
+     "in": {
+      "goal": "ship the sky billboard",
+      "progress": "advancing",
+      "distance": 5
+     },
+     "out": {
+      "drifting": false,
+      "reason": "grounded",
+      "phi": 0.0
+     }
+    },
+    {
+     "in": {
+      "goal": "ship billboard",
+      "progress": "advancing",
+      "distance": 3
+     },
+     "out": {
+      "drifting": false,
+      "reason": "advancing",
+      "phi": 0.23
+     }
+    }
+   ]
+  },
+  {
+   "seq": 9,
+   "steps": [
+    {
+     "in": {
+      "goal": "build the sky billboard now",
+      "progress": "advancing",
+      "distance": 8
+     },
+     "out": {
+      "drifting": false,
+      "reason": "grounded",
+      "phi": 0.0
+     }
+    },
+    {
+     "in": {
+      "goal": "construct the aerial hoarding",
+      "progress": "advancing",
+      "distance": 8
+     },
+     "out": {
+      "drifting": true,
+      "reason": "goal-drift",
+      "phi": 0.5
+     }
+    }
+   ]
+  },
+  {
+   "seq": 10,
+   "steps": [
+    {
+     "in": {
+      "goal": "a b c d e",
+      "progress": "advancing",
+      "distance": 5
+     },
+     "out": {
+      "drifting": false,
+      "reason": "grounded",
+      "phi": 0.0
+     }
+    },
+    {
+     "in": {
+      "goal": "a b c d e",
+      "progress": "stuck",
+      "distance": 2
+     },
+     "out": {
+      "drifting": false,
+      "reason": "self-report:stuck",
+      "phi": 0.29
+     }
+    },
+    {
+     "in": {
+      "goal": "a b c d e",
+      "progress": "stuck",
+      "distance": 2
+     },
+     "out": {
+      "drifting": true,
+      "reason": "self-report:stuck",
+      "phi": 0.29
+     }
+    },
+    {
+     "in": {
+      "goal": "a b c d e",
+      "progress": "stuck",
+      "distance": 2
+     },
+     "out": {
+      "drifting": true,
+      "reason": "self-report:stuck",
+      "phi": 0.29
+     }
+    }
+   ]
+  },
+  {
+   "seq": 11,
+   "steps": [
+    {
+     "in": {
+      "goal": "ship it",
+      "progress": "advancing",
+      "distance": "x"
+     },
+     "out": {
+      "drifting": false,
+      "reason": "grounded",
+      "phi": 0.0
+     }
+    },
+    {
+     "in": {
+      "goal": "ship it",
+      "progress": "advancing",
+      "distance": 3
+     },
+     "out": {
+      "drifting": false,
+      "reason": "advancing",
+      "phi": 0.06
+     }
+    }
+   ]
+  },
+  {
+   "seq": 12,
+   "steps": [
+    {
+     "in": {
+      "goal": "ship the sky billboard today",
+      "progress": "advancing",
+      "distance": 5
+     },
+     "out": {
+      "drifting": false,
+      "reason": "grounded",
+      "phi": 0.0
+     }
+    },
+    {
+     "in": {
+      "goal": "ship",
+      "progress": "advancing",
+      "distance": 5
+     },
+     "out": {
+      "drifting": true,
+      "reason": "goal-drift",
+      "phi": 0.38
+     }
+    }
+   ]
+  },
+  {
+   "seq": 13,
+   "steps": [
+    {
+     "in": {
+      "goal": "ship the sky billboard today",
+      "progress": "advancing",
+      "distance": 5
+     },
+     "out": {
+      "drifting": false,
+      "reason": "grounded",
+      "phi": 0.0
+     }
+    },
+    {
+     "in": {
+      "goal": "ship sky parser",
+      "progress": "advancing",
+      "distance": 5
+     },
+     "out": {
+      "drifting": false,
+      "reason": "advancing",
+      "phi": 0.3
+     }
+    }
+   ]
+  },
+  {
+   "seq": 14,
+   "steps": [
+    {
+     "in": {
+      "goal": "ship the sky billboard today",
+      "progress": "advancing",
+      "distance": 5
+     },
+     "out": {
+      "drifting": false,
+      "reason": "grounded",
+      "phi": 0.0
+     }
+    },
+    {
+     "in": {
+      "goal": "ship sky",
+      "progress": "advancing",
+      "distance": 5
+     },
+     "out": {
+      "drifting": false,
+      "reason": "advancing",
+      "phi": 0.25
+     }
+    }
+   ]
+  }
+ ]
+}

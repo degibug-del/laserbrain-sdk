@@ -1,0 +1,178 @@
+"""
+laserbrain command line — the smart recursion harness, in your terminal.
+
+    laserbrain demo                      watch an agent wander off-goal and get returned
+    laserbrain check --goal "…" [--progress advancing] [--distance 6] [--against "…"]
+    laserbrain verify run.json           verify an exported audit chain (tamper-evident)
+    laserbrain version
+
+Dep-free (stdlib only), like the rest of the package.
+"""
+from __future__ import annotations
+import argparse
+import json
+import sys
+from typing import Sequence
+
+from . import Harness, Verdict, verify_audit, ground_score, __version__
+
+DIM, BOLD, GOLD, RED, GREEN, RESET = '\033[2m', '\033[1m', '\033[33m', '\033[31m', '\033[32m', '\033[0m'
+
+
+def _c(s: str, code: str) -> str:
+    """Colour only when stdout is a TTY — pipes and logs stay clean."""
+    return f"{code}{s}{RESET}" if sys.stdout.isatty() else s
+
+
+def _demo() -> int:
+    hz = Harness()
+    print()
+    print("  " + _c("laserbrain", BOLD) + " — the agent wanders off its goal; the harness catches it and returns it.")
+    print()
+    print(f"    {'the agent is working on…':38} {'dist':>4} {'Φ':>6}  verdict")
+    print("    " + _c("─" * 70, DIM))
+    script = [
+        ("build the JSON parser", 6),
+        ("build the JSON parser", 4),
+        ("also add a caching layer and logging", 4),   # ← drifts to a different goal
+        ("build the JSON parser", 2),                   # ← returned to ground
+        ("build the JSON parser", 0),
+    ]
+    for goal, dist in script:
+        v = hz.check(goal, "advancing", dist)
+        if dist == 0:
+            tag = _c("✓ done", GREEN)
+        elif v.drifting:
+            tag = _c("⚑ DRIFT → return", RED)
+        elif v.reason == "grounded":
+            tag = _c("· grounded", DIM)
+        else:
+            tag = _c("· on track", DIM)
+        print(f"    {goal[:38]:38} {dist:>4} {v.phi:>6.2f}  {v.reason:12} {tag}")
+        if v.drifting:
+            print(f"    {'':38} {'':>4} {'':>6}  {_c('↩ ' + v.advice, GOLD)}")
+    print()
+    print("  It left its goal for a single step. Watching only itself, it wouldn't have noticed —")
+    print("  laserbrain saw it against the fixed reference and returned it, so it " + _c("finished", GREEN) + ".")
+    print()
+    print("  " + _c("from laserbrain import Harness", GOLD) + "   →   Harness().check(goal=…, progress=…, distance=…)")
+    print()
+    return 0
+
+
+def _check(args: argparse.Namespace) -> int:
+    hz = Harness()
+    if args.against:
+        hz.check(args.against, "advancing", 5)          # set ground to a prior goal, to reveal drift
+    v = hz.check(args.goal, args.progress, args.distance)
+    print(_verdict_line(v))
+    return 1 if v.drifting else 0                        # scriptable: nonzero exit on drift
+
+
+def _verdict_line(v: Verdict) -> str:
+    if v.drifting:
+        head = _c("⚑ drifting", RED)
+    elif v.reason == "grounded":
+        head = _c("✓ grounded", GREEN)
+    else:
+        head = _c("· on track", DIM)
+    return f"[{head}] {v.reason}  Φ={v.phi:.2f}  ground={ground_score(v.phi):.2f}\n  {_c(v.advice, DIM)}"
+
+
+def _verify(args: argparse.Namespace) -> int:
+    try:
+        with open(args.file) as f:
+            chain = json.load(f)
+    except Exception as e:
+        print(_c(f"could not read {args.file}: {e}", RED))
+        return 2
+    ok, i = verify_audit(chain)
+    if ok:
+        print(_c(f"✓ audit intact", GREEN) + f" — {len(chain)} records, hash chain verified end to end")
+        return 0
+    print(_c(f"✗ audit BROKEN at link {i}", RED) + " — a record was altered, or the file is corrupt")
+    return 1
+
+
+def _coverage(args: argparse.Namespace) -> int:
+    """How much of your work the harness actually watched.
+
+    Nobody in this industry can currently answer "is my agent monitoring attached?".
+    On 2026-07-24 the honest answer for a full working day was 2% — ten independently
+    caught errors, one check. Test coverage became non-negotiable once it was a number
+    on a screen; this is the same move, and it is deliberately unflattering.
+    """
+    import glob, os
+    paths = sorted(glob.glob(os.path.expanduser(args.dir + '/*.json')))
+    if not paths:
+        print(f"  no sessions in {args.dir} — is the hook installed?")
+        return 2
+    rows, tot_steps, tot_checks, tot_inf, tot_catch = [], 0, 0, 0, 0
+    for f in paths:
+        try:
+            d = json.load(open(f))
+        except Exception:
+            continue
+        steps = d.get('steps', 0) or 0
+        checks, inf = len(d.get('checks', [])), len(d.get('inferred', []))
+        catches = len(d.get('catches', []))
+        tot_steps += steps; tot_checks += checks; tot_inf += inf; tot_catch += catches
+        rows.append((os.path.basename(f)[:20], steps, checks, inf, catches,
+                     (checks / steps) if steps else 0.0))
+    print()
+    print(f"    {'session':22}{'steps':>7}{'spelled':>9}{'inferred':>10}{'catches':>9}{'coverage':>10}")
+    print("    " + _c("─" * 67, DIM))
+    for name, steps, checks, inf, catches, cov in rows:
+        bar = GREEN if cov >= 0.5 else (GOLD if cov >= 0.2 else RED)
+        print(f"    {name:22}{steps:>7}{checks:>9}{inf:>10}{catches:>9}" + _c(f"{cov:>9.0%}", bar))
+    cov = (tot_checks / tot_steps) if tot_steps else 0.0
+    print("    " + _c("─" * 67, DIM))
+    print(f"    {'all':22}{tot_steps:>7}{tot_checks:>9}{tot_inf:>10}{tot_catch:>9}"
+          + _c(f"{cov:>9.0%}", GREEN if cov >= 0.5 else RED))
+    print()
+    if cov < 0.5:
+        print("  " + _c("Below 50%.", BOLD) + " A detection result cannot be computed from this —")
+        print("  silence from a harness that was not running says nothing about the harness.")
+        print("  Inferred checks are counted separately and do NOT open that gate: they carry")
+        print("  no distance, so their \u03a6 is a lower bound and they cannot detect a stall.")
+        return 1
+    print("  " + _c("Scorable.", BOLD) + " Recall and precision can be computed from these sessions.")
+    return 0
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    p = argparse.ArgumentParser(prog="laserbrain", description="the smart recursion harness — in your terminal")
+    p.add_argument("-V", "--version", action="version", version=f"laserbrain {__version__}")
+    sub = p.add_subparsers(dest="cmd")
+    sub.add_parser("demo", help="watch an agent drift off-goal and get returned")
+    c = sub.add_parser("check", help="check one spelled state")
+    c.add_argument("--goal", required=True, help="the agent's current goal")
+    c.add_argument("--progress", default="advancing", choices=["advancing", "stuck", "circling"])
+    c.add_argument("--distance", type=int, default=5, help="0–10, distance to done")
+    c.add_argument("--against", metavar="GOAL", help="a prior goal to set as ground, to reveal drift")
+    v = sub.add_parser("verify", help="verify an exported audit chain")
+    v.add_argument("file", help="a JSON file written by Harness.export_audit()")
+    cv = sub.add_parser("coverage", help="how much of your work the harness actually watched")
+    cv.add_argument("--dir", default="~/.claude/laserbrain",
+                    help="where the hook writes sessions (default: ~/.claude/laserbrain)")
+    sub.add_parser("version", help="print the version")
+
+    args = p.parse_args(argv)
+    if args.cmd == "demo":
+        return _demo()
+    if args.cmd == "check":
+        return _check(args)
+    if args.cmd == "coverage":
+        args.dir = args.dir.replace("~", __import__("os").path.expanduser("~"))
+        return _coverage(args)
+    if args.cmd == "verify":
+        return _verify(args)
+    if args.cmd == "version":
+        print(f"laserbrain {__version__}")
+        return 0
+    p.print_help()
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

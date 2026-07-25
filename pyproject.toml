@@ -1,0 +1,34 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "laserbrain"
+version = "0.4.2"
+description = "Attach the smart recursion harness to any agent loop — a provably-correct, external check for when an AI agent (or team) has drifted from its goal."
+readme = "README.md"
+requires-python = ">=3.9"
+license = "MIT"
+authors = [{ name = "phronesis" }]
+keywords = ["ai", "agents", "oversight", "drift", "mcp", "llm", "multi-agent"]
+dependencies = []
+
+[project.scripts]
+laserbrain = "laserbrain.cli:main"
+
+[project.urls]
+Homepage = "https://phronesis.world/laserbrain"
+Research = "https://phronesis.world/laserbrain/research"
+Demo = "https://phronesis.world/laserbrain/demo"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["laserbrain*"]
+
+[tool.setuptools.package-data]
+laserbrain = ["py.typed"]
+
+[project.optional-dependencies]
+# The default grammar has no dependencies and never will. This is opt-in, for agents
+# that restate goals in different words — see laserbrain/vocab.py.
+semantic = ["sentence-transformers>=3.0"]
