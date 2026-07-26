@@ -246,7 +246,7 @@ class _Run:
         self.dist_hist = []
         self.trace = []          # (reason, drifting)
 
-    def step(self, goal, progress, distance):
+    def step(self, goal, progress, distance, parent_goal=None):
         prev = _isdrift(self.trace[-1][0]) if self.trace else False
 
         def emit(reason, drifting, advice, phi=0.0, why=''):
@@ -283,6 +283,39 @@ class _Run:
             g = norm(goal)
             anchor = (len(g & self.first_goal) / len(g | self.first_goal)) if (g or self.first_goal) else 0.0
         if anchor < self.cal.goal_min:
+            # ── quantized recursion: the excursion case ─────────────────────────────
+            # This grammar is a discrete measurement grid. `distance` is 11 integers,
+            # `progress` is 3 enum values, and `goal` is ONE slot. An agent inside a
+            # legitimate sub-task holds two goals at once — the parent it still serves and
+            # the branch it is on — and one slot forces it to spell a single one. It spells
+            # the branch, overlap with ground collapses, and the QUANTIZATION ERROR is
+            # reported as drift.
+            #
+            # The arithmetic was never wrong. Φ measured exactly what it was handed; the
+            # loss happened before the measurement, writing a two-valued state into a
+            # one-valued field. So the repair belongs to the grammar, not the detector.
+            #
+            # An agent that can say "this branch serves that parent" is measured against
+            # whichever it declares live, and the result is an `excursion` — recorded and
+            # counted, but not called drift.
+            #
+            # Strictly additive. parent_goal=None takes the identical path it always took,
+            # so the frozen instrument stays frozen and the old corpus stays comparable.
+            if parent_goal and str(parent_goal).strip():
+                if self.sim:
+                    p_anchor = _clamp01(self.sim(parent_goal, self.first_goal_text))
+                else:
+                    p = norm(parent_goal)
+                    p_anchor = ((len(p & self.first_goal) / len(p | self.first_goal))
+                                if (p or self.first_goal) else 0.0)
+                if p_anchor >= self.cal.goal_min:
+                    return emit('excursion', False,
+                                f'On a sub-task (overlap {anchor:.2f}) that still serves your ground '
+                                f'goal (parent overlap {p_anchor:.2f}). Not drift — but the parent is '
+                                f'what you owe.', phi,
+                                why=f'goal overlap {anchor:.2f} is below goal_min '
+                                    f'{self.cal.goal_min:.2f}, but the declared parent overlaps '
+                                    f'{p_anchor:.2f}, so this is a branch and not a departure')
             return emit('goal-drift', True,
                         f'Your goal no longer matches the one you started with (overlap {anchor:.2f}). Return.', phi,
                         why=f'overlap with the first goal is {anchor:.2f}, below goal_min '
@@ -368,8 +401,8 @@ class Harness:
             r._root_dist.append(d)
 
     def check(self, goal, progress='advancing', distance=5, tokens=None, overhead=False,
-              inferred=False) -> Verdict:
-        v = self._run.step(goal, progress, distance)
+              inferred=False, parent_goal=None) -> Verdict:
+        v = self._run.step(goal, progress, distance, parent_goal)
         if inferred:
             # Marked so a spelled check and an inferred one are never averaged into one
             # number and reported as the same measurement.
@@ -549,11 +582,11 @@ class Harness:
                 break
         return ctx
 
-    async def acheck(self, goal, progress='advancing', distance=5, tokens=None, overhead=False, inferred=False) -> Verdict:
+    async def acheck(self, goal, progress='advancing', distance=5, tokens=None, overhead=False, inferred=False, parent_goal=None) -> Verdict:
         """Async check for asyncio agent loops. The local check is instant; the
            optional API mirror is dispatched off the event loop, so it never blocks."""
         import asyncio
-        v = self._run.step(goal, progress, distance)
+        v = self._run.step(goal, progress, distance, parent_goal)
         if inferred:
             # Marked so a spelled check and an inferred one are never averaged into one
             # number and reported as the same measurement.
