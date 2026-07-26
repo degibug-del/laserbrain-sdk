@@ -316,8 +316,15 @@ class _Run:
                                 why=f'goal overlap {anchor:.2f} is below goal_min '
                                     f'{self.cal.goal_min:.2f}, but the declared parent overlaps '
                                     f'{p_anchor:.2f}, so this is a branch and not a departure')
+            # Name the remedy, not just the fault. A goal legitimately stops matching ground
+            # in three ways and the verdict used to describe none of them: the user
+            # redirected you (reset), you are on a sub-task (parent_goal), or you really did
+            # wander off (return). Only the third is drift. A verdict that names one cause
+            # teaches the agent that cause is the only one.
             return emit('goal-drift', True,
-                        f'Your goal no longer matches the one you started with (overlap {anchor:.2f}). Return.', phi,
+                        f'Your goal no longer matches the one you started with (overlap {anchor:.2f}). '
+                        f'If the user redirected you, reset. If this is a sub-task, pass parent_goal. '
+                        f'Otherwise return to the goal you started with.', phi,
                         why=f'overlap with the first goal is {anchor:.2f}, below goal_min '
                             f'{self.cal.goal_min:.2f}; first goal was {self.first_goal_text!r}')
         if d is None:

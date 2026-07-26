@@ -22,7 +22,7 @@ Any runtime with a tool-call boundary can drive this in about ten lines; see
 `from_claude_code`, `from_grok`, and `from_openai_agents` for shapes, and `normalise`
 for the contract they all meet.
 """
-import json, os, pathlib, datetime
+import json, os, pathlib, datetime, re
 
 from .observe import Observer
 
@@ -212,6 +212,30 @@ def normalise(ev):
             ok = False
     elif isinstance(resp, str) and resp.strip().lower().startswith('error'):
         ok = False
+
+    # A failure whose evidence is INSIDE the text used to sail through as success.
+    #
+    # Everything above only fires when a failure announces itself structurally: an
+    # exit_code, an isError flag, or a string that literally begins with "error". Most
+    # real failures do neither. "timeout: command not found" is a bare stderr line. A
+    # denied tool call arrives as ordinary MCP content. A compiler error sits in the
+    # middle of 200 lines of output. All three were recorded as ok.
+    #
+    # The cost was recall itself. Recall is hits over CATCHES, and a catch is exactly an
+    # independently-detected failure. With this recogniser blind to unlabelled failures,
+    # 21 sessions carried ZERO catches on 2026-07-26 — a day containing two failed
+    # archives, a rejected upload and a missing binary — so the denominator was always
+    # zero and recall was unobtainable no matter how far coverage rose. Raising the
+    # coverage floor that morning was necessary and nowhere near sufficient.
+    #
+    # Deliberately narrow. These are unambiguous failure signatures, anchored to line
+    # starts where possible, because a false catch is worse than a missed one: catches
+    # are the GROUND TRUTH the harness is scored against, so inventing them would let the
+    # instrument grade itself against its own noise.
+    if ok:
+        probe = (resp if isinstance(resp, str) else json.dumps(resp, default=str))[:4000]
+        if _looks_failed(probe):
+            ok = False
 
     low_tool = tool.lower()
     if low_tool.endswith('reset_task') or low_tool.endswith('__reset_task'):
@@ -412,6 +436,52 @@ class Session:
 
 
 # ── adapter shapes — thin wrappers over the same path ───────────────────────
+# Failure signatures that a tool reports in its TEXT rather than in a status field.
+#
+# Kept deliberately short and specific. A catch is the ground truth this harness is scored
+# against, so a false catch is strictly worse than a missed one: it would let the instrument
+# grade itself against noise it generated. Every entry here is a phrase that does not occur
+# in ordinary successful output.
+#
+# Anchored where possible. "error" alone is useless — it matches "no errors", "error
+# handling", and every log line about the concept. `^error` and ": error:" (the compiler
+# convention) do not.
+_FAIL_PATTERNS = [
+    r'^\s*error\b',                     # a line that begins by declaring failure
+    r':\s*error:',                      # clang/swift/tsc convention: file:line: error:
+    r'command not found',
+    r'no such file or directory',
+    r'permission denied',
+    r'^\s*Traceback \(most recent call last\)',
+    r'\bBUILD FAILED\b', r'\bEXPORT FAILED\b', r'\bARCHIVE FAILED\b',
+    r'\bTHIS CALL DID NOT RUN\b',       # a hook denied it — a real, independently-caught stop
+    r'\bfatal:', r'\bfatal error\b',
+    r'^\s*FAIL\b',
+    r'\bexit code [1-9]', r'\bexit status [1-9]',
+    r'\bAssertionError\b', r'\bSyntaxError\b',
+]
+_FAIL_RE = re.compile('|'.join(_FAIL_PATTERNS), re.IGNORECASE | re.MULTILINE)
+
+# Phrases that LOOK like failures and are not. A guard that reports "0 errors" or a test
+# suite that says "no such file or directory: expected" would otherwise manufacture catches.
+_NOT_FAIL_RE = re.compile(
+    r'\b(0|no|zero)\s+(errors?|failures?)\b|\berrors?:\s*0\b|\bno errors found\b',
+    re.IGNORECASE)
+
+
+def _looks_failed(text: str) -> bool:
+    """True when the TEXT of a tool result carries an unambiguous failure signature.
+
+    Used only after the structural checks (exit_code, isError) have declined to call it a
+    failure — so this catches the large class of tools that report failure in prose.
+    """
+    if not text:
+        return False
+    if _NOT_FAIL_RE.search(text):
+        return False
+    return bool(_FAIL_RE.search(text))
+
+
 def verdict_of(text):
     """Read {drifting, reason, phi} out of a check response, whatever shape it arrives in.
 
