@@ -305,6 +305,30 @@ class Session:
         return self.save()
 
     def reset(self):
+        """Close the current segment and start a new one.
+
+        ARCHIVE, then clear. This used to be a bare wipe, and it was quietly destroying the
+        entire dogfood corpus: the design tells an agent to reset_task on every genuinely
+        new task, so a working session resets five or six times and each reset threw away
+        that segment's checks, fires and catches. On 2026-07-25 a ~100-step session was on
+        disk as "steps: 4", and the whole nine-session corpus held 0 fires — while the
+        transcript of one session mentioned check_state on 1695 lines. The harness had been
+        firing all along; the record of it was deleted at every task boundary.
+
+        A segment is also the RIGHT unit to score, not merely a salvaged one. A reset is a
+        wave boundary: one declared goal, one interval, one denominator. Coverage over a
+        whole session averages a disciplined stretch together with the ungrounded scramble
+        before the first check; per segment, each is visible for what it was.
+        """
+        if int(self.d.get('steps', 0)) > 0:
+            self.d.setdefault('segments', []).append({
+                'goal': self.d.get('goal'),
+                'steps': int(self.d.get('steps', 0)),
+                'checks': self.d.get('checks', []),
+                'inferred': self.d.get('inferred', []),
+                'catches': self.d.get('catches', []),
+                'ended': datetime.datetime.now().isoformat(timespec='seconds'),
+            })
         self.d.update(steps=0, checks=[], inferred=[], catches=[], events=[], goal=None,
                       was_reset=True)
         self._obs = Observer('unset')

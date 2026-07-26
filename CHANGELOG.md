@@ -17,6 +17,13 @@
 - **Grok hooks**: `LASERBRAIN_AGENT=grok` on every hook command; wire lb_safety.
 - **sync_from_icloud.sh**: also syncs lb_safety; sessions symlink under `~/.config/laserbrain/sessions`.
 - Tests: `test_gate_grok.py`, `test_safety.py`.
+- **MCP tandem_write**: kinds `wave_open` | `wave_close` (auto wave id on open).
+- **lb_gate claimed_by_others**: free-form standing claims with paths; attach no-wave
+  claims to open wave; fully-closed wave falls through; release via wave_close /
+  done(release_claims).
+- **lb_coverage**: subagent spawn nudge (parent check between waves).
+- **quarantine_drift_log.py**: move unattributed drift rows → `drift-log.pre-agent.jsonl`.
+- **Claude settings**: `LASERBRAIN_AGENT=claude` + `lb_safety` on PreToolUse.
 
 
 ## 0.4.2 — 2026-07-25

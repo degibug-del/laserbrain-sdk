@@ -141,6 +141,23 @@ def main():
         by_after = g.claimed_by_others('grok')
         show('closed agent claims drop',
              'lasermind/' not in by_after, repr(by_after))
+        # free-form standing (no open wave at all)
+        tlog.write_text('\n'.join(json.dumps(r) for r in [
+            {'kind': 'claim', 'agent': 'claude',
+             'payload': {'paths': ['phronesis/lasermind/hooks/']}},
+        ]) + '\n')
+        by_ff = g.claimed_by_others('grok')
+        show('free-form claim locks without wave',
+             by_ff.get('phronesis/lasermind/hooks/') == 'claude', repr(by_ff))
+        tlog.write_text('\n'.join(json.dumps(r) for r in [
+            {'kind': 'claim', 'agent': 'claude',
+             'payload': {'paths': ['phronesis/lasermind/hooks/']}},
+            {'kind': 'done', 'agent': 'claude',
+             'payload': {'release_claims': True}},
+        ]) + '\n')
+        by_rel = g.claimed_by_others('grok')
+        show('free-form claim released by done(release_claims)',
+             'phronesis/lasermind/hooks/' not in by_rel, repr(by_rel))
 
     # ── integration: search_tool always allowed even past BLOCK_AFTER ──────
     code, err, out = run_gate(
