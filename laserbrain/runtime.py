@@ -289,13 +289,24 @@ class Session:
                                       'what': f'failed call: {name}'})
         return self.save()
 
-    def check(self, goal, progress, distance, drifting):
+    def check(self, goal, progress, distance, drifting, reason=None, phi=None):
         """A SPELLED check. Inputs are recorded so the session can be replayed under a
-        different calibration — see calibrate.py."""
+        different calibration — see calibrate.py.
+
+        `reason` and `phi` are the verdict as returned, kept so the corpus can be asked
+        WHICH signal fired. Without them every fire is an undifferentiated True and the
+        question "do goal-drift fires cluster on goal restatements" cannot be asked of the
+        data at all. Optional, because older callers pass four positional arguments.
+        """
         self.d['steps'] += 1
-        self.d['checks'].append({'step': self.d['steps'], 'drifting': bool(drifting),
-                                 'goal': str(goal)[:400], 'progress': str(progress),
-                                 'distance': distance})
+        rec = {'step': self.d['steps'], 'drifting': bool(drifting),
+               'goal': str(goal)[:400], 'progress': str(progress),
+               'distance': distance}
+        if reason is not None:
+            rec['reason'] = str(reason)
+        if phi is not None:
+            rec['phi'] = phi
+        self.d['checks'].append(rec)
         # After a reset the agent's own spelled goal is authoritative — it is the task as
         # the agent states it, which is exactly what a ground should be.
         if not self.d.get('goal') and str(goal).strip():
@@ -369,16 +380,30 @@ class Session:
                 f'now with your CURRENT goal, progress and distance 0-10.')
 
     def feed(self, ev):
-        """Drive the session from one raw runtime event. Returns a nudge or None."""
+        """Drive the session from one raw runtime event. Returns a nudge or None.
+
+        The check branch reads the verdict with `verdict_of` rather than by searching the
+        raw text for '"drifting": true'. That search was here until 2026-07-25 and it never
+        matched a real response: an MCP result arrives wrapped as
+        {"content":[{"type":"text","text":"{...}"}]}, and serialising it escapes the inner
+        quotes to \\"drifting\\". Every fire was written to disk as drifting=False while the
+        agent was being told, in the same call, that it had drifted.
+
+        The cost was the corpus. 204 checks over 10 sessions recorded ZERO fires, 104 of
+        them below the 0.30 overlap that defines goal-drift. dogfood.py reported
+        "PRECISION undefined — the harness never fired in these sessions", which read as a
+        quiet instrument and was a deaf one. The 8% precision we publish had to be
+        recovered from chat transcripts because the session files never held it.
+        """
         kind, tool, args, ok, text = normalise(ev)
         if kind == 'prompt':
             self.prompt(text); return None
         if kind == 'reset':
             self.reset(); return None
         if kind == 'check':
-            low = text.lower()
+            v = verdict_of(text)
             self.check(args.get('goal', ''), args.get('progress', ''), args.get('distance'),
-                       '"drifting": true' in low or '"drifting":true' in low)
+                       v['drifting'], reason=v['reason'], phi=v['phi'])
             return None
         if kind == 'tool':
             self.tool(tool, args, ok)
@@ -387,6 +412,49 @@ class Session:
 
 
 # ── adapter shapes — thin wrappers over the same path ───────────────────────
+def verdict_of(text):
+    """Read {drifting, reason, phi} out of a check response, whatever shape it arrives in.
+
+    Parses rather than pattern-matches. The shapes that occur in practice are a bare dict,
+    a raw JSON string, and — the one that broke this for the entire corpus — the MCP
+    envelope {"content":[{"type":"text","text":"{...}"}]}, where the payload is JSON
+    carried inside a JSON string and every quote is escaped.
+
+    Returns drifting=False for anything unreadable. That direction is deliberate: an
+    unparsed response must not manufacture a fire, because a false fire in the corpus is
+    indistinguishable from a real one and would inflate precision. A missed fire at least
+    shows up as silence, which is what this bug looked like.
+    """
+    def walk(x, depth=0):
+        if depth > 6 or isinstance(x, bool):
+            return None
+        if isinstance(x, dict):
+            if isinstance(x.get('drifting'), bool):
+                return x
+            for val in x.values():
+                got = walk(val, depth + 1)
+                if got is not None:
+                    return got
+        elif isinstance(x, (list, tuple)):
+            for val in x:
+                got = walk(val, depth + 1)
+                if got is not None:
+                    return got
+        elif isinstance(x, str):
+            t = x.strip()
+            if t[:1] in ('{', '['):
+                try:
+                    return walk(json.loads(t), depth + 1)
+                except Exception:
+                    return None
+        return None
+
+    found = walk(text) or {}
+    return {'drifting': bool(found.get('drifting')),
+            'reason': str(found.get('reason') or 'unparsed'),
+            'phi': found.get('phi')}
+
+
 def from_claude_code(ev, directory=None):
     """Claude Code hook payload (PostToolUse / UserPromptSubmit) on stdin."""
     s = Session(session_id_of(ev), directory=directory)
