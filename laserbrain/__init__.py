@@ -23,7 +23,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import hashlib, json, re, urllib.request
 
-__all__ = ['Harness', 'Team', 'Verdict', 'PRESETS', 'norm', 'verify_audit', 'ground_score', 'MAX_DEPTH']
+__all__ = ['Harness', 'Team', 'Verdict', 'PRESETS', 'norm', 'laserscore', 'verify_audit', 'ground_score', 'MAX_DEPTH']
 __version__ = '0.4.2'
 MAX_DEPTH = 50   # nesting deeper than this is a drift signal, not a decomposition
 API_DEFAULT = 'https://laserbrain-mcp.degibug.workers.dev'
@@ -97,6 +97,28 @@ def _asdist(d):
         return max(0, min(10, int(float(d))))
     except Exception:
         return 5
+
+
+def laserscore(goal, progress, distance=None, parent_goal=None) -> str:
+    """One well-formed reading written in the grammar, in canonical form.
+
+    The grammar is the notation. A laserscore is what gets written in it at a single
+    step. Φ is a measurement taken of that writing. Naming the middle term is what lets
+    the two failures be told apart: a state that cannot be spelled at all is caught
+    before any number exists, and no number is ever reported for it.
+
+    The rendering shows exactly the three slots Φ reads, inflection already collapsed by
+    norm(), which is why 'building billboards' and 'build a billboard' write the same
+    score. Kept byte-identical to the server's renderer in lasermind/mcp-server.mjs --
+    test_laserscore_conformance.py fails if the two ever disagree.
+    """
+    def tok(v):
+        return '|'.join(sorted(norm(v)))
+    d = 'd?' if distance is None else f'd{_asdist(distance)}'
+    base = f'⟨{tok(goal)}⟩ {progress} {d}'
+    if parent_goal and str(parent_goal).strip():
+        return f'{base} ⊂ ⟨{tok(parent_goal)}⟩'
+    return base
 
 
 def _clamp01(x):
@@ -222,6 +244,11 @@ class Verdict:
     # that can only interrupt gets switched off; one that can be argued with gets
     # trusted. Defaulted so every existing Verdict(...) call site keeps working.
     why: str = ''
+    # The grammatical object this verdict was derived FROM, in canonical form. None
+    # exactly when the state could not be spelled -- for an 'ungrammatical' verdict that
+    # None is not a missing field, it is the finding. Defaulted so every existing
+    # Verdict(...) call site keeps working.
+    laserscore: str = None
 
     @property
     def ground_score(self) -> float:
@@ -248,10 +275,14 @@ class _Run:
 
     def step(self, goal, progress, distance, parent_goal=None):
         prev = _isdrift(self.trace[-1][0]) if self.trace else False
+        # Stays None until the state is known grammatical, a few lines below. emit() reads
+        # it at call time, so the ungrammatical return below correctly carries no score --
+        # there is nothing to write when the state cannot be spelled.
+        score = None
 
         def emit(reason, drifting, advice, phi=0.0, why=''):
             self.trace.append((reason, drifting))
-            return Verdict(drifting, reason, round(phi, 2), advice, why)
+            return Verdict(drifting, reason, round(phi, 2), advice, why, score)
 
         goal = str(goal or '').strip()
         if not goal or progress not in _PROGRESS:
@@ -260,6 +291,7 @@ class _Run:
                         'You cannot spell a clear goal and a valid progress. Return to ground.',
                         why=bad)
         d = None if distance is None else _asdist(distance)
+        score = laserscore(goal, progress, d, parent_goal)
         if self.ground is None:
             self.ground = {'goal': goal, 'progress': progress, 'dist': d}
             self.first_goal = norm(goal)
