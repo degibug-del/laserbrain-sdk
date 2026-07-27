@@ -273,7 +273,7 @@ class _Run:
         self.dist_hist = []
         self.trace = []          # (reason, drifting)
 
-    def step(self, goal, progress, distance, parent_goal=None):
+    def step(self, goal, progress, distance, parent_goal=None, user_turn=False):
         prev = _isdrift(self.trace[-1][0]) if self.trace else False
         # Stays None until the state is known grammatical, a few lines below. emit() reads
         # it at call time, so the ungrammatical return below correctly carries no score --
@@ -315,6 +315,27 @@ class _Run:
             g = norm(goal)
             anchor = (len(g & self.first_goal) / len(g | self.first_goal)) if (g or self.first_goal) else 0.0
         if anchor < self.cal.goal_min:
+            # ── the user changed the subject ────────────────────────────────────────
+            # This is the single highest-value rule in the instrument, and it was in the
+            # MCP server and not here. The graded corpus (CLAIM.md, 35 fires) puts
+            # goal-drift at 24 fires and 0 true catches — 69% of everything this
+            # instrument has ever produced, with a precision of zero — and 22 of those 24
+            # were the FIRST CHECK AFTER THE USER SPOKE. The rule was faithfully detecting
+            # that the subject had changed. It had: someone changed it.
+            #
+            # A goal that was replaced was not drifted from, so this is not a softened
+            # verdict, it is a different event. The caller has to say so, because a
+            # library cannot see the conversation the way the server's hook can — hence an
+            # explicit flag rather than a guess.
+            if user_turn:
+                self.ground = {'goal': goal, 'progress': progress, 'dist': d}
+                self.first_goal = norm(goal)
+                self.first_goal_text = goal
+                self.dist_hist = [] if d is None else [d]
+                return emit('reground', False,
+                            'New instruction — ground reset to the goal you just stated.',
+                            why=f'the goal moved (overlap {anchor:.2f}) on the first check '
+                                f'after a user turn, so it was replaced, not drifted from')
             # ── quantized recursion: the excursion case ─────────────────────────────
             # This grammar is a discrete measurement grid. `distance` is 11 integers,
             # `progress` is 3 enum values, and `goal` is ONE slot. An agent inside a
@@ -440,8 +461,8 @@ class Harness:
             r._root_dist.append(d)
 
     def check(self, goal, progress='advancing', distance=5, tokens=None, overhead=False,
-              inferred=False, parent_goal=None) -> Verdict:
-        v = self._run.step(goal, progress, distance, parent_goal)
+              inferred=False, parent_goal=None, user_turn=False) -> Verdict:
+        v = self._run.step(goal, progress, distance, parent_goal, user_turn)
         if inferred:
             # Marked so a spelled check and an inferred one are never averaged into one
             # number and reported as the same measurement.
@@ -621,7 +642,7 @@ class Harness:
                 break
         return ctx
 
-    async def acheck(self, goal, progress='advancing', distance=5, tokens=None, overhead=False, inferred=False, parent_goal=None) -> Verdict:
+    async def acheck(self, goal, progress='advancing', distance=5, tokens=None, overhead=False, inferred=False, parent_goal=None, user_turn=False) -> Verdict:
         """Async check for asyncio agent loops. The local check is instant; the
            optional API mirror is dispatched off the event loop, so it never blocks."""
         import asyncio
