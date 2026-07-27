@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "laserbrain"
-version = "0.4.2"
+version = "0.4.3"
 description = "Attach the smart recursion harness to any agent loop — a provably-correct, external check for when an AI agent (or team) has drifted from its goal."
 readme = "README.md"
 requires-python = ">=3.9"

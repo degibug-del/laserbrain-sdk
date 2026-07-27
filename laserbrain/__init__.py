@@ -24,7 +24,7 @@ from dataclasses import dataclass
 import hashlib, json, re, urllib.request
 
 __all__ = ['Harness', 'Team', 'Verdict', 'PRESETS', 'norm', 'laserscore', 'verify_audit', 'ground_score', 'MAX_DEPTH']
-__version__ = '0.4.2'
+__version__ = '0.4.3'
 MAX_DEPTH = 50   # nesting deeper than this is a drift signal, not a decomposition
 API_DEFAULT = 'https://laserbrain-mcp.degibug.workers.dev'
 
