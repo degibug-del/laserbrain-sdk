@@ -1,5 +1,5 @@
 {
-  "laserbrain_grammar": "1.7.0",
+  "laserbrain_grammar": "1.8.0",
   "kind": "reasoning-state",
   "immutable": true,
   "fields": {
@@ -162,8 +162,8 @@
     }
   },
   "layers": {
-    "what": "The five parts, and what each one is answerable for. Recorded here because this is the one document every implementation already reads, and because a layer with no name has no home \u2014 which is not a metaphor. On 2026-07-27 the instruction layer was unnamed, so its three files sat inside lasermind, and the logic layer's canonical grammar.json sat there too. The canonical file drifted to 1.4.0 while its own copy reached 1.6.0 and every parity check stayed green, because each compared a pair that did not include the source.",
-    "how_a_layer_is_identified": "Not by counting bugs. A part is real when it can vary independently of the others and has a failure mode none of them share. laserbrain fails by being WRONG, lasergear by being absent or obstructive, laserfield by being UNREACHABLE, lasermind by MISMATCHING, laserstore by being LOST or STALE. Different failures need different fixes and different release cadences, which is what makes these layers rather than folders.",
+    "what": "The six parts, and what each one is answerable for. Recorded here because this is the one document every implementation already reads, and because a layer with no name has no home \u2014 which is not a metaphor. On 2026-07-27 the instruction layer was unnamed, so its three files sat inside lasermind, and the logic layer's canonical grammar.json sat there too. The canonical file drifted to 1.4.0 while its own copy reached 1.6.0 and every parity check stayed green, because each compared a pair that did not include the source.",
+    "how_a_layer_is_identified": "Not by counting bugs. A part is real when it can vary independently of the others and has a failure mode none of them share. laserbrain fails by being WRONG, lasergear by being absent or obstructive, laserfield by being UNREACHABLE, lasermind by MISMATCHING, laserstore by being LOST or STALE, the operator by being IRREVERSIBLE. Different failures need different fixes and different release cadences, which is what makes these layers rather than folders.",
     "laserbrain": {
       "is": "the reference \u2014 the fixed external check",
       "holds": "the verdicts, \u03a6, the normaliser, the cycle rule",
@@ -201,6 +201,16 @@
       "evidence": "Every other layer writes to it and none of them owns it \u2014 the signature of a missing part. Symptoms already present when it was named: two drift-vectors.json files disagreeing 15 vs 9, one of them read by nothing; a tandem.jsonl orphaned beside its own replacement; a drift-log.pre-agent.jsonl no policy covers. Nobody owned retention, naming or format, because there was no nobody to own it.",
       "count": "many \u2014 one per agent or machine"
     },
+    "operator": {
+      "is": "the operator \u2014 the computer itself, the only layer that acts on the world",
+      "holds": "the hands: the shell, the filesystem, the browser, the deploy, the send. Everything that leaves the loop and touches something a person owns.",
+      "fails_by": "being irreversible \u2014 an action that cannot be taken back",
+      "may_not": "take an irreversible or outward-facing action without authorization from the person, per action and per session",
+      "named": "2026-07-28",
+      "evidence": "Its failure mode is the one no other layer shares, which is the test this document already sets. Every other failure is recoverable by correction: a wrong reading is re-taken, an absent instruction supplied, an unreachable server retried, a mismatched copy re-synced, a lost record rebuilt. An operator's is not \u2014 a sent message is sent, a deleted file is deleted, a rewritten history is rewritten. That asymmetry is why it needs a name of its own rather than being filed under lasergear as 'tools'. The guard was built before the layer was named: lb_safety.py blocks force-push, git reset --hard, rm -rf, npm publish, wrangler deploy, and on 2026-07-28 it stopped two recursive-delete calls of mine inside twenty minutes \u2014 both harmless, both correctly refused, because the check cannot know which one was not. The same day it also fired on a string in a sentence ABOUT the guard, which is the cost of matching text rather than intent: an operator guard is allowed to be imprecise in this direction and not the other.",
+      "count": "many \u2014 one per machine",
+      "routing": "supercode may not route it. Allocation is a reading; an action is not, and a manager that could dispatch irreversible work would be deciding something no reading gives it a basis for."
+    },
     "cardinality": "In the laserworld there are many laserbrains, many laserfields, many lasergear and many laserstores \u2014 and ONE lasermind. That is not a preference, it is what makes it the protocol: a protocol existing in two versions is not a protocol, it is a defect. The other four multiply because they are instances; this one is singular because being shared is the whole of its function. A useful consequence \u2014 a divergence in any other layer is local, and a divergence in lasermind is total.",
     "division": "laserbrain is the REFERENCE; supercode is the MANAGER. Diego, 2026-07-28. This is what settles how much authority a supervisor may hold, a question that had been answered too conservatively. Because the reference is always laserbrain's, supercode can manage freely \u2014 halt, route, escalate, reassign \u2014 since it acts on readings it did not author. The single thing it may not do is set an agent's GROUND, because then laserbrain would be measuring against a reference the manager chose, and the external check would be self-referential. Manage the work; never write the reference.",
     "supercode": {
@@ -211,6 +221,6 @@
       "note": "Not a sixth layer. It lives inside laserbrain and is listed here because the reference/manager division is what makes its authority legible."
     }
   },
-  "content_hash": "1583a73519083160",
+  "content_hash": "804fdd5ee3f2e40a",
   "content_hash_what": "sha256 of this FILE's own lines, excluding the three that carry the version and these hashes. Deliberately not a hash of re-serialised JSON: Python and JavaScript disagree about identical content \u2014 Python escapes non-ASCII by default and writes 1.0 where JavaScript writes 1 \u2014 so a cross-language content hash compares serialisers rather than content. Both attempts failed that way before this one. Bytes are bytes. Exists because grammar 1.6.0 came to mean two different documents on 2026-07-28: seven additions under one version, canonical and live both announcing 1.6.0 with different content, while sync-grammar --check compared the copies to each other and passed."
 }
