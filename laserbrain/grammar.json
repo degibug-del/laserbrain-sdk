@@ -1,0 +1,216 @@
+{
+  "laserbrain_grammar": "1.7.0",
+  "kind": "reasoning-state",
+  "immutable": true,
+  "fields": {
+    "goal": "string, non-empty \u2014 the ONE goal, held stable across steps",
+    "doing": "string \u2014 what this step does",
+    "parent_goal": "string or null \u2014 optional. The goal THIS one serves, when you are on a sub-task. Lets an excursion be spelled instead of collapsed into the single goal slot.",
+    "progress": "one of: advancing | stuck | circling",
+    "distance": "integer 0-10 \u2014 how far from done (0 = done)",
+    "next": "string \u2014 the single next action",
+    "blocked": "string or null \u2014 what blocks you, or null"
+  },
+  "progress_enum": [
+    "advancing",
+    "stuck",
+    "circling"
+  ],
+  "distance_range": {
+    "type": "integer",
+    "min": 0,
+    "max": 10
+  },
+  "well_formed": "a non-empty goal and a progress in progress_enum",
+  "laserscore": {
+    "what": "One well-formed reading written in this grammar at a single step. The grammar is the notation; a laserscore is what gets written in it. It is grammatical or it is not \u2014 there is no partial credit, and ungrammaticality is itself the first drift signal.",
+    "precondition": "A laserscore exists only for a well_formed state. A goal that cannot be spelled in this grammar produces no laserscore and, therefore, no drift score \u2014 the verdict is 'ungrammatical' and the laserscore is null. That null is not a missing field; it is the first detection, and it happens before any arithmetic exists. This is why the scope is any GRAMMATICAL goal rather than any goal: what is scored is what an agent can spell, not what it can think.",
+    "measured": [
+      "goal",
+      "progress",
+      "distance"
+    ],
+    "carried": [
+      "doing",
+      "next",
+      "blocked",
+      "parent_goal"
+    ],
+    "canonical_form": "\u27e8normalized goal tokens, sorted, |-joined\u27e9 progress dN, and \u2282 \u27e8parent tokens\u27e9 when a parent_goal is named",
+    "example": "\u27e8class|first|laserscore|make\u27e9 advancing d7",
+    "why_normalized": "The canonical form shows exactly what the drift score reads, inflection already collapsed. 'building billboards' and 'build a billboard' write the same laserscore, because they are the same intent and must not score as drift."
+  },
+  "drift_score": {
+    "what": "The number derived from a laserscore by measuring it against the ground laserscore \u2014 the first one written this run.",
+    "requires": "a laserscore. There is no drift score without one, and no partial score for a partly-spellable state.",
+    "symbol": "\u03a6",
+    "formula": "0.5\u00b7jaccard_distance(goal_tokens, ground_goal_tokens) + 0.3\u00b7|distance \u2212 ground_distance|/10 + 0.2\u00b7(progress \u2260 ground_progress)",
+    "range": "0.0 (identical to ground) to 1.0 (nothing in common)",
+    "note": "\u03a6 measures displacement from ground, not badness. A large \u03a6 on a task you were told to switch to is correct and expected \u2014 that is what reset_task is for."
+  },
+  "derivation": "state \u2192 laserscore (grammatical) \u2192 drift score (numerical). The grammar decides the first arrow; the ground decides the second. Nothing is measured that was not first spelled.",
+  "use": "Spell your state into this schema each step. Ungrammaticality, a stuck/circling self-report, a goal drifted from your first goal, or a stalled distance is your signal to return to ground. If the user redirected you, reset. If you are on a sub-task, name its parent_goal.",
+  "proof": "https://phronesis.world/laserbrain",
+  "normalizer": {
+    "what": "How a goal becomes the token set \u03a6 compares. This is the SOURCE \u2014 every implementation is generated from it, not retyped. It lived as six identical hand-written copies across three languages until 2026-07-27; identical by attention, not by construction.",
+    "order": [
+      "lowercase",
+      "match [a-z0-9']+",
+      "drop stopwords",
+      "stem when len > 4",
+      "set"
+    ],
+    "token_pattern": "[a-z0-9']+",
+    "stopwords": [
+      "a",
+      "an",
+      "and",
+      "as",
+      "at",
+      "be",
+      "by",
+      "for",
+      "from",
+      "i",
+      "in",
+      "into",
+      "is",
+      "it",
+      "my",
+      "of",
+      "on",
+      "or",
+      "our",
+      "out",
+      "so",
+      "that",
+      "the",
+      "then",
+      "this",
+      "to",
+      "up",
+      "we",
+      "with",
+      "your"
+    ],
+    "stem_pattern": "(ings?|edly|ed|ers?|es|s|tion|ment)$",
+    "stem_min_length": 5,
+    "why": "'building billboards' and 'build a billboard' must write the same laserscore \u2014 they are the same intent and must not score as drift."
+  },
+  "calibration": {
+    "goal_min": 0.3,
+    "self_report_min": 0.15,
+    "stall_window": 4,
+    "weights": {
+      "goal": 0.5,
+      "distance": 0.3,
+      "progress": 0.2
+    },
+    "anchored": {
+      "what": "How much of \u03a6's weight rests OUTSIDE the agent's own account of itself. The goal term is anchored \u2014 the ground is frozen at first call and cannot be revised, which is the content of the theorem. `distance` and `progress` are whatever the agent typed. On the published weights that is 0.5 external and 0.5 introspection, and until 2026-07-27 nothing said so.",
+      "unanchored": 0.5,
+      "corroborated": 1.0,
+      "rule": "Corroborated when at least one OBSERVED event completed successfully since the previous check. An agent reporting `advancing` with a falling distance and no successful work behind it is making a claim with nothing under it. Work that ran and FAILED does not corroborate a claim of advancing \u2014 something happened, but not the thing being claimed.",
+      "evidence_file": "~/.config/laserbrain/evidence.json",
+      "not_in_phi": "Reported, never folded into \u03a6. Reweighting would move the published instrument and invalidate every calibration and drift vector, and there is no data yet behind a particular new weight. The test that matters: an agent doing the work and an agent inventing its numbers produce IDENTICAL \u03a6. Only `anchored` separates them.",
+      "added": "2026-07-28"
+    },
+    "observed": {
+      "what": "A progress reading taken from the tool trace on every step, whether or not a check was called. Repetition reads as circling, consecutive failure as stuck. Reported on a check ONLY when it disagrees with what the agent typed.",
+      "why": "Coverage runs around 24% on a machine with a gate interrupting every four steps, so for three steps in four the inferred reading is the only one that exists. 'Remember to call it every step' is not an interface.",
+      "not_a_verdict": "It never overrides. Inferred state can under-report and cannot over-report, so a disagreement is a question rather than an accusation \u2014 the agent's claim and the trace are shown side by side and neither is trusted over the other.",
+      "why_progress_and_not_phi": "\u03a6 needs a CURRENT goal to compute its goal term, and only the agent has that. The ground goal is inferable \u2014 held from the first prompt \u2014 but the current one is not, so the contrast is drawn where evidence actually exists.",
+      "added": "2026-07-28"
+    },
+    "collision_min": 0.6,
+    "collision": {
+      "what": "Two agents whose GROUNDS overlap above collision_min are working the same job. Reported by supercode only \u2014 it is invisible to each agent's own harness by construction, because both are perfectly on their own ground and every single-agent verdict is correct at every step.",
+      "why_not_a_verdict": "The nine verdicts are about ONE agent against ONE ground and stay that way. This is a supervisor finding: it describes a relation between agents, which is a different kind of object and does not belong in a set that means something else.",
+      "threshold": "0.60 Jaccard on normalised ground goals. Above this the two are doing the same work; below it they merely share vocabulary. Deliberately higher than goal_min (0.30) \u2014 that threshold asks whether ONE agent has left its own ground, which is a weaker claim than two agents occupying the same one.",
+      "added": "2026-07-28"
+    }
+  },
+  "verdicts": {
+    "what": "Every verdict a single agent can receive, in the order the harness tests them. First match wins, so the order is part of the definition.",
+    "hold": [
+      "grounded",
+      "advancing",
+      "reground",
+      "excursion"
+    ],
+    "warn_then_interrupt": {
+      "names": [
+        "stalled",
+        "self-report"
+      ],
+      "rule": "These pass the PREVIOUS verdict through as their drifting flag: the first occurrence warns and does not interrupt, a repeat does."
+    },
+    "interrupt": [
+      "goal-drift",
+      "ungrammatical"
+    ],
+    "meta": {
+      "names": [
+        "oscillating"
+      ],
+      "added": "1.4.0",
+      "rule": "A fixed-point iteration converges, diverges, or CYCLES. The instrument had a verdict for the first two and nothing for the third. Checks the GROUND trail first \u2014 the canonical spelling of each goal, in order \u2014 and falls back to the trail of readings. x = [x, f(x)] makes the state the PAIR: the ground is x and the verdicts are f(x), so cycling on verdicts alone caught a circling agent only when its readings ALSO happened to repeat periodically. Fires on period 2 to 6, over two whole repeats with a floor of six readings (need = max(6, 2p)), and more than one distinct value \u2014 one ground held is a settled state or a stall, not an oscillation. The smallest period wins, since [a,b,a,b,a,b] satisfies both 2 and 4.",
+      "why": "Each individual verdict is correct while an agent bounces between two grounds. The SEQUENCE is the failure, and returning to ground has demonstrably not held.",
+      "model": "x = [x, f(x)] \u2014 the state includes the measurement of itself, which is why the previous verdict is an input to the current one.",
+      "widened": "1.5.0",
+      "ground_first": "1.6.0"
+    }
+  },
+  "layers": {
+    "what": "The five parts, and what each one is answerable for. Recorded here because this is the one document every implementation already reads, and because a layer with no name has no home \u2014 which is not a metaphor. On 2026-07-27 the instruction layer was unnamed, so its three files sat inside lasermind, and the logic layer's canonical grammar.json sat there too. The canonical file drifted to 1.4.0 while its own copy reached 1.6.0 and every parity check stayed green, because each compared a pair that did not include the source.",
+    "how_a_layer_is_identified": "Not by counting bugs. A part is real when it can vary independently of the others and has a failure mode none of them share. laserbrain fails by being WRONG, lasergear by being absent or obstructive, laserfield by being UNREACHABLE, lasermind by MISMATCHING, laserstore by being LOST or STALE. Different failures need different fixes and different release cadences, which is what makes these layers rather than folders.",
+    "laserbrain": {
+      "is": "the reference \u2014 the fixed external check",
+      "holds": "the verdicts, \u03a6, the normaliser, the cycle rule",
+      "fails_by": "being wrong \u2014 e.g. a cycle detector blind to period 4",
+      "ships_as": "PyPI, the Worker, the offline server",
+      "count": "many \u2014 one per agent",
+      "routing": "supercode may route ALLOCATION and never EXECUTION. Everywhere else it refuses to act, because it sees three spelled fields while the agent sees the work \u2014 a supervisor that regrounds mid-run is a planner with less information than the planner it overrides. Allocation inverts that: which agents are on which grounds is a fact no individual agent can observe, since each is perfectly on its own ground and correct at every step. There the supervisor holds strictly more information than anyone it advises, which is the only condition under which advising is honest. route() therefore says who should yield and never what they should do instead, and returns no recommendation at all when the observable state gives no basis to choose. Added 2026-07-28.",
+      "supervision": "supercode.manage() runs N agents and holds three powers: it may HALT an agent duplicating another's ground, it may INJECT the agent's own verdict into its loop, and it may ESCALATE to a human. It may not REGROUND a running agent. The asymmetry is the reason: mid-run the supervisor sees three spelled fields while the agent sees the work, so regrounding is a planner overriding a better-informed planner \u2014 and every later reading would be measured against a reference the monitor chose itself. On allocation the asymmetry inverts, because which agents share a ground is a fact no agent can observe. Where it cannot honestly choose it returns no recommendation and escalates; authority goes up to a person, never sideways to the monitor. Added 2026-07-28."
+    },
+    "lasergear": {
+      "is": "the instructions",
+      "holds": "when to invoke the instrument and what to do with a verdict \u2014 the hooks, the gates, the protocols",
+      "fails_by": "being absent, or nagging without cause",
+      "named": "2026-07-27",
+      "note": "Existed for months without a name. lb_gate, lb_coverage and lb_safety lived in lasermind because there was nowhere else to put them, which is also why they carry the normaliser and sit outside every normaliser gate.",
+      "count": "many \u2014 one per deployment"
+    },
+    "laserfield": {
+      "is": "the server",
+      "holds": "the live weather \u2014 T Q R V S, rotation, the hub",
+      "fails_by": "being unreachable \u2014 cold start, timeout",
+      "count": "many \u2014 one per environment"
+    },
+    "lasermind": {
+      "is": "the protocol",
+      "holds": "how the parts talk \u2014 MCP, the transports, the session handshake",
+      "fails_by": "mismatching \u2014 a session id, a header, a tool name",
+      "count": "ONE \u2014 necessarily"
+    },
+    "laserstore": {
+      "is": "the records",
+      "holds": "what accumulates: drift logs, session files, the link log, the drift vectors, the dogfood corpus",
+      "fails_by": "being lost, orphaned or stale",
+      "named": "2026-07-27",
+      "evidence": "Every other layer writes to it and none of them owns it \u2014 the signature of a missing part. Symptoms already present when it was named: two drift-vectors.json files disagreeing 15 vs 9, one of them read by nothing; a tandem.jsonl orphaned beside its own replacement; a drift-log.pre-agent.jsonl no policy covers. Nobody owned retention, naming or format, because there was no nobody to own it.",
+      "count": "many \u2014 one per agent or machine"
+    },
+    "cardinality": "In the laserworld there are many laserbrains, many laserfields, many lasergear and many laserstores \u2014 and ONE lasermind. That is not a preference, it is what makes it the protocol: a protocol existing in two versions is not a protocol, it is a defect. The other four multiply because they are instances; this one is singular because being shared is the whole of its function. A useful consequence \u2014 a divergence in any other layer is local, and a divergence in lasermind is total.",
+    "division": "laserbrain is the REFERENCE; supercode is the MANAGER. Diego, 2026-07-28. This is what settles how much authority a supervisor may hold, a question that had been answered too conservatively. Because the reference is always laserbrain's, supercode can manage freely \u2014 halt, route, escalate, reassign \u2014 since it acts on readings it did not author. The single thing it may not do is set an agent's GROUND, because then laserbrain would be measuring against a reference the manager chose, and the external check would be self-referential. Manage the work; never write the reference.",
+    "supercode": {
+      "is": "the manager \u2014 it assigns, halts, escalates and routes, against laserbrain's readings",
+      "holds": "collisions() and route(), which read ACROSS agents, and manage() which runs them",
+      "fails_by": "overreaching \u2014 deciding something it has no basis for, or writing the reference it measures against",
+      "may_not": "set a running agent's ground",
+      "note": "Not a sixth layer. It lives inside laserbrain and is listed here because the reference/manager division is what makes its authority legible."
+    }
+  },
+  "content_hash": "1583a73519083160",
+  "content_hash_what": "sha256 of this FILE's own lines, excluding the three that carry the version and these hashes. Deliberately not a hash of re-serialised JSON: Python and JavaScript disagree about identical content \u2014 Python escapes non-ASCII by default and writes 1.0 where JavaScript writes 1 \u2014 so a cross-language content hash compares serialisers rather than content. Both attempts failed that way before this one. Bytes are bytes. Exists because grammar 1.6.0 came to mean two different documents on 2026-07-28: seven additions under one version, canonical and live both announcing 1.6.0 with different content, while sync-grammar --check compared the copies to each other and passed."
+}

@@ -3,7 +3,7 @@
 import json, os, pathlib, subprocess, sys, tempfile
 
 HOOK = pathlib.Path.home() / (
-    'Library/Mobile Documents/com~apple~CloudDocs/phronesis/lasermind/hooks/lb_safety.py'
+    'Library/Mobile Documents/com~apple~CloudDocs/phronesis/lasergear/lb_safety.py'
 )
 ok = True
 

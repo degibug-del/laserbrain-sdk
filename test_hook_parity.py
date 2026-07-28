@@ -10,10 +10,18 @@ This is the test that makes the duplication safe. It runs both implementations o
 randomised traces and fails on the first disagreement. If it goes red, the two copies
 have drifted apart, which is precisely the failure mode the product is named after.
 """
-import random, pathlib, importlib.util
+import os, random, pathlib, importlib.util
 from laserbrain.observe import Observer, _WINDOW, _REPEAT, _FAILS
 
-HOOK = pathlib.Path.home() / 'Library/Mobile Documents/com~apple~CloudDocs/phronesis/lasermind/hooks/lb_coverage.py'
+# lasergear, not lasermind/hooks — the instruction layer got its own home on 2026-07-27.
+#
+# The old path now holds a shim that exits non-zero and says where to look, so this test
+# went red the moment the file moved rather than quietly comparing against nothing. That
+# was the point of the shim: a moved file should break what depends on it, loudly, instead
+# of leaving it measuring air. A silent pass here would have meant the duplicated progress
+# rules were ungated and nothing would have said so.
+_ROOT = pathlib.Path.home() / 'Library/Mobile Documents/com~apple~CloudDocs/phronesis'
+HOOK = pathlib.Path(os.environ.get('LASERGEAR_COVERAGE') or _ROOT / 'lasergear/lb_coverage.py')
 
 ok = True
 

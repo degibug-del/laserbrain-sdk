@@ -156,12 +156,12 @@ with tempfile.TemporaryDirectory() as d:
         s8.tool('Read', {'p': 1})
     show('coverage_warning fires after lapse', s8.coverage_warning() is not None)
 
-# ── the tandem-run fixes (2026-07-25) ────────────────────────────────────────
+# ── the link-run fixes (2026-07-25) ────────────────────────────────────────
 # Found by running Claude and Grok at the same time and reading the corpus: 50 steps
 # from two agents merged into one `unknown.json`, a ground goal of 'do all', and a
 # prompt stored as '<user_query>...</user_query>'.
 
-def _tandem_tests():
+def _link_tests():
     import os
     from laserbrain.runtime import session_id_of, clean_prompt
 
@@ -178,7 +178,7 @@ def _tandem_tests():
     show('empty stays empty', clean_prompt(None) == '')
 
     with tempfile.TemporaryDirectory() as d:
-        s = Session('tandem', directory=d)
+        s = Session('link', directory=d)
         s.prompt('<user_query>build the parser</user_query>')
         show('the ground is stored clean, not as markup', s.d['goal'] == 'build the parser', s.d['goal'])
 
@@ -191,13 +191,13 @@ def _tandem_tests():
         show('the next SPELLED check does become the ground',
              s.d['goal'] == 'build the parser properly', s.d['goal'])
 
-        s2 = Session('tandem2', directory=d)
+        s2 = Session('link2', directory=d)
         s2.prompt('first task')
         s2.prompt('second thing')
         show('a later prompt still cannot overwrite an existing ground',
              s2.d['goal'] == 'first task')
 
 
-_tandem_tests()
+_link_tests()
 print('\n  ' + ('PASS' if ok else 'FAIL'))
 raise SystemExit(0 if ok else 1)

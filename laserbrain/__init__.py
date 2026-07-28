@@ -22,9 +22,10 @@ instrument); the multi-agent dialogue + recursion teams are the prototype extens
 from __future__ import annotations
 from dataclasses import dataclass
 import hashlib, json, re, urllib.request
+from pathlib import Path as _Path
 
 __all__ = ['Harness', 'Team', 'Verdict', 'PRESETS', 'norm', 'laserscore', 'verify_audit', 'ground_score', 'MAX_DEPTH']
-__version__ = '0.4.3'
+__version__ = '0.11.0'
 MAX_DEPTH = 50   # nesting deeper than this is a drift signal, not a decomposition
 API_DEFAULT = 'https://laserbrain-mcp.degibug.workers.dev'
 
@@ -64,10 +65,34 @@ def _sparkline(values: list, lo: float = 0.0, hi: float = None) -> str:
     return ''.join(_SPARK[min(n, max(0, int((v - lo) / rng * n)))] for v in values)
 
 # ── the fixed-reference primitive (frozen: drift.ts @ 6b483de7) ────────────────
-_STOP = {'the', 'a', 'an', 'to', 'of', 'and', 'or', 'for', 'in', 'on', 'at', 'is', 'it', 'this',
-         'that', 'with', 'my', 'your', 'our', 'i', 'we', 'be', 'as', 'by', 'from', 'into', 'out',
-         'up', 'so', 'then'}
-_STEM = re.compile(r"(ings?|edly|ed|ers?|es|s|tion|ment)$")
+def _grammar():
+    """The shipped grammar.json — the one document all four implementations read.
+
+    Synced from lasermind/grammar.json by scripts/sync-grammar.mjs and packaged with the
+    wheel, because a pip install cannot reach the repo it came from. The literals below
+    remain as a fallback for the case where the file is somehow absent: an instrument that
+    refuses to start because a data file moved is worse than one that starts on its last
+    known-good constants and says so.
+
+    These numbers used to be typed out in nine places — thirty stopwords and a stem rule
+    here, in mcp-server.mjs, in drift.ts and in three lasermind scripts, plus three
+    calibration constants in each of three implementations. check-normaliser-parity.mjs
+    existed only to police that copying. A list nobody retypes needs no policing.
+    """
+    try:
+        with open(_Path(__file__).parent / 'grammar.json', encoding='utf-8') as fh:
+            return json.load(fh)
+    except Exception:
+        return {}
+
+
+_G = _grammar()
+_FALLBACK_STOP = {'the', 'a', 'an', 'to', 'of', 'and', 'or', 'for', 'in', 'on', 'at', 'is', 'it',
+                  'this', 'that', 'with', 'my', 'your', 'our', 'i', 'we', 'be', 'as', 'by',
+                  'from', 'into', 'out', 'up', 'so', 'then'}
+_STOP = set(_G.get('normalizer', {}).get('stopwords') or _FALLBACK_STOP)
+_STEM = re.compile(_G.get('normalizer', {}).get('stem_pattern')
+                   or r"(ings?|edly|ed|ers?|es|s|tion|ment)$")
 _PROGRESS = {'advancing', 'stuck', 'circling'}
 
 
@@ -99,7 +124,7 @@ def _asdist(d):
         return 5
 
 
-def laserscore(goal, progress, distance=None, parent_goal=None) -> str:
+def laserscore(goal, progress, distance=None, parent_goal=None) -> str | None:
     """One well-formed reading written in the grammar, in canonical form.
 
     The grammar is the notation. A laserscore is what gets written in it at a single
@@ -112,6 +137,17 @@ def laserscore(goal, progress, distance=None, parent_goal=None) -> str:
     score. Kept byte-identical to the server's renderer in lasermind/mcp-server.mjs --
     test_laserscore_conformance.py fails if the two ever disagree.
     """
+    # The precondition, enforced 2026-07-27. The grammar says a laserscore exists only
+    # for a well_formed state and is null otherwise — and Harness.check has always
+    # honoured that, emitting 'ungrammatical' before any score is written. This function,
+    # which anyone can call directly, did not: it rendered '⟨⟩ advancing d5' for an empty
+    # goal and '⟨billboard|ship|sky⟩ bogus d5' for a progress value outside the enum.
+    # Both are readings of states that cannot be spelled, which is precisely the thing
+    # the null is supposed to detect. Found by adding laserscore to the drift vectors and
+    # noticing two 'ungrammatical' steps had a score.
+    if not goal or not str(goal).strip() or progress not in _PROGRESS:
+        return None
+
     def tok(v):
         return '|'.join(sorted(norm(v)))
     d = 'd?' if distance is None else f'd{_asdist(distance)}'
@@ -119,6 +155,45 @@ def laserscore(goal, progress, distance=None, parent_goal=None) -> str:
     if parent_goal and str(parent_goal).strip():
         return f'{base} ⊂ ⟨{tok(parent_goal)}⟩'
     return base
+
+
+def _cycle(reasons):
+    """The period of a repeating cycle at the tail of the trace, or 0.
+
+    Falls out of x = [x, f(x)]: a fixed-point iteration either converges, diverges or
+    CYCLES, and the harness had a verdict for the first two and nothing for the third.
+    An agent bouncing between two grounds gets a correct verdict every step and is never
+    told the sequence is the problem.
+
+    Whole repeats only, and more than one distinct reading — a constant tail is a settled
+    state, not an oscillation, and calling it one would fire on every healthy run.
+
+    PERIODS 2..6, not 2..3. The first version tested only 2 and 3, which happens to miss
+    the canonical example of the equation it was derived from. Take x = [sin, f(x)] with
+    f = d/dx: sin -> cos -> -sin -> -cos -> sin, period FOUR. Sixteen readings, four
+    complete repeats, and the detector returned 0 — the cleanest cycle in mathematics was
+    invisible to the verdict built to find cycles. Nothing failed; there was simply no
+    period-4 arm to fail.
+
+    Ascending order matters: [a,b,a,b,a,b] is period 2 and also satisfies period 4, and
+    the smaller period is the true one, so the first match must win.
+
+    Two whole repeats is the evidence bar, with a floor of six readings — `need` is
+    max(6, 2p), which leaves p=2 and p=3 at exactly their old six-reading behaviour and
+    asks eight for p=4. Above six, the window required (twelve-plus consecutive readings)
+    exceeds anything a real run produces, and a pattern that long is better described as a
+    process than an oscillation.
+    """
+    for p in range(2, 7):
+        need = max(6, 2 * p)
+        if len(reasons) < need:
+            continue
+        tail = reasons[-need:]
+        if len(set(tail)) < 2:
+            continue
+        if all(tail[i] == tail[i % p] for i in range(need)):
+            return p
+    return 0
 
 
 def _clamp01(x):
@@ -146,9 +221,21 @@ class Calibration:
     __slots__ = ('goal_min', 'self_report_min', 'stall_window', 'w_goal', 'w_distance',
                  'w_progress', 'echo_min', 'dialogue_window')
 
-    def __init__(self, goal_min=0.30, self_report_min=0.15, stall_window=4,
-                 w_goal=0.5, w_distance=0.3, w_progress=0.2,
-                 echo_min=0.25, dialogue_window=3):
+    # Defaults come from grammar.json's `calibration` block, with the published literals
+    # as a fallback if the file is missing. `Calibration()` with no arguments therefore
+    # still means "the published instrument" — it just no longer means "whatever numbers
+    # were last typed into this signature". The same three numbers were retyped in
+    # mcp-server.mjs and drift.ts; all three now read the one document.
+    _D = (_G.get('calibration') or {})
+    _W = (_D.get('weights') or {})
+
+    def __init__(self, goal_min=_D.get('goal_min', 0.30),
+                 self_report_min=_D.get('self_report_min', 0.15),
+                 stall_window=_D.get('stall_window', 4),
+                 w_goal=_W.get('goal', 0.5), w_distance=_W.get('distance', 0.3),
+                 w_progress=_W.get('progress', 0.2),
+                 echo_min=_D.get('echo_min', 0.25),
+                 dialogue_window=_D.get('dialogue_window', 3)):
         for name, v in (('goal_min', goal_min), ('self_report_min', self_report_min)):
             if not 0.0 <= float(v) <= 1.0:
                 raise ValueError(f'{name} must be within 0..1, got {v!r}')
@@ -249,6 +336,23 @@ class Verdict:
     # None is not a missing field, it is the finding. Defaulted so every existing
     # Verdict(...) call site keeps working.
     laserscore: str = None
+    # How much of Φ's weight is anchored OUTSIDE the agent's own account of itself.
+    #
+    # The product claim is that laserbrain measures against a fixed external reference,
+    # which an agent watching only itself provably cannot do. That is true of the goal
+    # term — the ground is frozen at first call and cannot be revised mid-run — and it is
+    # NOT true of the other two: `distance` and `progress` are whatever the agent says
+    # they are. On the published calibration that is 0.5 anchored and 0.5 self-report, and
+    # nothing said so. An agent that simply reports its distance falling keeps Φ low while
+    # doing nothing at all.
+    #
+    # So: 0.5 when only the ground is anchored, 1.0 when the self-reported terms are
+    # corroborated by observed events since the last check. Reported, never folded into
+    # Φ — reweighting would move the published instrument and invalidate every calibration
+    # and vector, and there is no data yet to justify a particular new weight. This is the
+    # honest thing that can be said today: here is the number, and here is how much of it
+    # you are taking on trust.
+    anchored: float = 1.0
 
     @property
     def ground_score(self) -> float:
@@ -272,6 +376,56 @@ class _Run:
         self.cal = cal or PUBLISHED
         self.dist_hist = []
         self.trace = []          # (reason, drifting)
+        # The canonical spelling of the GROUND at each step. Separate from `trace` because
+        # trace is unpacked as (reason, drifting) in several places and widening the tuple
+        # would break every one of them silently.
+        #
+        # This exists because of x = [x, f(x)]. The state is the PAIR — the ground and its
+        # measurement — and `trace` only ever held the measurement. Running the cycle
+        # detector on verdicts alone was running it on f(x), so a genuinely cycling agent
+        # was only caught when its READINGS happened to line up periodically too, which is
+        # a coincidence stacked on top of the thing we actually wanted to detect. A ground
+        # that returns to a previous ground is the cycle, whatever the verdicts did.
+        self.trail = []
+        # Events observed since the last check — what the agent DID, as opposed to what it
+        # says about itself. Cleared each check, because corroboration is a claim about the
+        # interval just measured, not about the run as a whole.
+        self.evidence = []
+        self.corroborated = 0       # checks whose self-report was backed by observed work
+        self.checks = 0
+        self._osc = False        # already reported an oscillation for the current cycle
+
+    def _anchor(self):
+        """What fraction of Φ's weight is anchored outside the agent's self-report.
+
+        The goal term is always anchored: the ground is frozen at first call and cannot be
+        revised, which is the whole content of the theorem. The distance and progress terms
+        are not — they are whatever the agent typed. On the published calibration that is
+        0.5 external and 0.5 introspection, and until now nothing said so.
+
+        Corroboration means: at least one thing was OBSERVED to happen since the last
+        check, and nothing observed failed outright. An agent reporting `advancing` with a
+        falling distance and no successful work behind it is making a claim with nothing
+        under it — that is `unrun` from catches.py, applied to the harness's own inputs.
+
+        Deliberately NOT folded into Φ. Reweighting would move the published instrument,
+        invalidate every calibration and every drift vector, and I would be inventing a
+        weight with no data behind it. Reporting it is the honest thing available today.
+        """
+        self.checks += 1
+        ev = self.evidence
+        self.evidence = []
+        if not ev:
+            return round(self.cal.w_goal, 2)
+        ok = [e for e in ev if getattr(e, 'ok', None) is not False]
+        if not ok:
+            return round(self.cal.w_goal, 2)
+        self.corroborated += 1
+        return 1.0
+
+    def saw(self, event):
+        """Record one observed event for the interval up to the next check."""
+        self.evidence.append(event)
 
     def step(self, goal, progress, distance, parent_goal=None, user_turn=False):
         prev = _isdrift(self.trace[-1][0]) if self.trace else False
@@ -281,8 +435,34 @@ class _Run:
         score = None
 
         def emit(reason, drifting, advice, phi=0.0, why=''):
+            # The trace records the READING; the cycle is a fact about the sequence, so the
+            # original goes in and `oscillating` is what comes out. Storing the meta-verdict
+            # instead would erase the pattern that produced it.
             self.trace.append((reason, drifting))
-            return Verdict(drifting, reason, round(phi, 2), advice, why, score)
+            self.trail.append('|'.join(sorted(norm(goal))) if goal else '')
+
+            # GROUND FIRST, then readings. x = [x, f(x)] — the ground is x and the verdicts
+            # are f(x), and a cycle in x is the thing the verdict was built to name. Checking
+            # the ground first means an agent that keeps returning to the same goals is
+            # caught on that fact alone, instead of having to also produce a periodic
+            # sequence of readings. The verdict pass is kept because a repeating READING
+            # over a moving ground is a real pattern too — it just is not the same one.
+            p = _cycle(self.trail)
+            of = 'ground'
+            if not p:
+                p, of = _cycle([r for r, _ in self.trace]), 'reading'
+            if p and not self._osc:
+                self._osc = True
+                what = ('You have returned to the same goals in a repeating order'
+                        if of == 'ground' else 'Your reading has cycled')
+                return Verdict(True, 'oscillating', round(phi, 2),
+                               f'{what} with period {p} — you have been told to return and have '
+                               f'come back to the same place. Re-ground explicitly instead of '
+                               f'returning again.', why or f'period-{p} {of} cycle', score,
+                               self._anchor())
+            if not p:
+                self._osc = False
+            return Verdict(drifting, reason, round(phi, 2), advice, why, score, self._anchor())
 
         goal = str(goal or '').strip()
         if not goal or progress not in _PROGRESS:
@@ -459,6 +639,36 @@ class Harness:
             if not r._root_dist or d < min(r._root_dist):
                 r._since_progress = 0
             r._root_dist.append(d)
+
+    def saw(self, kind, name, ok=None, **kw):
+        """Tell the harness what actually happened, so the self-report can be corroborated.
+
+            hz.saw('tool', 'pytest', ok=True)
+            hz.saw('edit', 'drift.ts', sites=1)
+            v = hz.check(goal=..., progress='advancing', distance=3)
+            v.anchored        # 1.0 — the report is backed by observed work
+                              # 0.5 — only the frozen ground is; the rest is your word
+
+        Half of Φ has always been the agent's own account of itself: `distance` and
+        `progress` are simply typed in, and an agent that reports its distance falling
+        keeps Φ low while doing nothing. This is the channel that lets that be checked
+        rather than assumed. Events are the same shape catches.py uses, because it is the
+        same question — what is this claim resting on.
+        """
+        from .catches import Event
+        fields = set(Event.__dataclass_fields__)
+        self._run.saw(Event(**{k: v for k, v in dict(kind=kind, name=name, ok=ok, **kw).items()
+                               if k in fields}))
+        return self
+
+    def corroboration(self):
+        """Across this run: what fraction of checks had their self-report backed.
+
+        The number worth putting on a dashboard. A run at 0.0 is one where the instrument
+        measured the agent's opinion of itself for every step it took.
+        """
+        r = self._run
+        return round(r.corroborated / r.checks, 3) if r.checks else 0.0
 
     def check(self, goal, progress='advancing', distance=5, tokens=None, overhead=False,
               inferred=False, parent_goal=None, user_turn=False) -> Verdict:
@@ -848,3 +1058,61 @@ class Team:
 # framework adapters (LangGraph, CrewAI, generic) — imported last to avoid a cycle
 from .adapters import guard, langgraph_node, crewai_step_callback, middleware  # noqa: E402
 __all__ += ['guard', 'langgraph_node', 'crewai_step_callback', 'middleware']
+
+# ── the whole toolkit, on the public surface ──────────────────────────────────
+# Everything below already existed in the package and none of it was importable from
+# `laserbrain` — a user who pip-installed got the harness and the adapters, and had to
+# know the submodule names to find the rest. 2026-07-27: if we use it, users get it.
+#
+# The field is bundled but NOT wired into Φ, and that separation is deliberate. The
+# harness stays a pure function of goal, progress and distance, computable with every
+# socket blocked. Bundling the field gives you the weather in the same install; it does
+# not make the detector depend on a hub being up.
+from .field import (                                            # noqa: E402
+    read_field, speak_to_field, field_vocabulary, FieldGround, VOCABULARY,
+)
+from .vocab import embedding_similarity                          # noqa: E402
+from .observe import Observer                                    # noqa: E402
+# Six catches, not three. `unfalsified`, `instrument_blind` and `unrun` were built
+# alongside residue/contaminated/stale_gate on 2026-07-27 and then left out of both the
+# import and __all__ — so half of Bugfinder was public API and half was reachable only as
+# laserbrain.catches.unfalsified, which nothing documents. Splitting a set of six down the
+# middle is the kind of thing no test fails on: every name still resolves, the package
+# still imports, and the only symptom is that three of them are invisible.
+from .catches import (catches, Catch, Event, residue, contaminated,  # noqa: E402
+                      stale_gate, unfalsified, instrument_blind, unrun)
+__all__ += ['read_field', 'speak_to_field', 'field_vocabulary', 'FieldGround', 'VOCABULARY',
+            'embedding_similarity', 'Observer', 'catches', 'Catch', 'Event', 'Calibration',
+            'residue', 'contaminated', 'stale_gate',
+            'unfalsified', 'instrument_blind', 'unrun']
+
+# ── 14 of 14 · every capability, one import ───────────────────────────────────
+# The package carried 10 of the 14 things laserbrain can do; the other four were
+# reachable only over MCP or only from a local file, so which subset you got depended
+# on how you arrived. `link` was `tandem` and was described as two agents — the record
+# format always had an `agent` field, so the limit was in the docs, not the data.
+from .services import (                                          # noqa: E402
+    analyze_language, compare_phrasings, ask_alice,
+    remember_self, resume_self, forget_self, ServiceUnavailable, call as service_call,
+)
+from .link import (                                              # noqa: E402
+    link_read, link_write, link_whoami, link_agents,
+)
+__all__ += ['analyze_language', 'compare_phrasings', 'ask_alice',
+            'remember_self', 'resume_self', 'forget_self', 'ServiceUnavailable',
+            'service_call', 'link_read', 'link_write', 'link_whoami', 'link_agents']
+
+# ── supercode · an agent for agents ───────────────────────────────────────────
+from .supercode import Supercode, AgentView                     # noqa: E402
+__all__ += ['Supercode', 'AgentView']
+
+# ── the second instrument · for work whose goal is supposed to move ───────────
+from .explore import Search, Reading, trailscore                 # noqa: E402
+__all__ += ['Search', 'Reading', 'trailscore']
+
+# ── laserbrain AI · the harness as a decoder ──────────────────────────────────
+from .write import Writer
+# nova last: it imports Harness and Supercode from here, so it must load after both.
+from .nova import Nova, Skill                                     # noqa: E402                                        # noqa: E402
+__all__ += ['Writer']
+__all__ += ['Nova', 'Skill']

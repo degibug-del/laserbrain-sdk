@@ -5,13 +5,13 @@ Pins the 2026-07-25 improvement list:
   - search_replace is a write tool (claim gate sees Grok edits)
   - search_tool is always allowed (no schema-discovery deadlock)
   - agent identity: env → session → unknown
-  - tandem from= and agent= both count
+  - link rows: from= and agent= both count
   - deny howto mentions use_tool for me=grok
 """
 import json, os, pathlib, subprocess, sys, tempfile, importlib.util
 
 HOOK = pathlib.Path.home() / (
-    'Library/Mobile Documents/com~apple~CloudDocs/phronesis/lasermind/hooks/lb_gate.py'
+    'Library/Mobile Documents/com~apple~CloudDocs/phronesis/lasergear/lb_gate.py'
 )
 ok = True
 
@@ -29,17 +29,17 @@ def load_hook():
     return mod
 
 
-def run_gate(ev, env=None, tandem=None, session=None, sid='test-gate-sid'):
-    """Run lb_gate as a subprocess with temp tandem/session; return (exit, stderr, stdout)."""
+def run_gate(ev, env=None, link=None, session=None, sid='test-gate-sid'):
+    """Run lb_gate as a subprocess with temp link/session; return (exit, stderr, stdout)."""
     env = dict(os.environ, **(env or {}))
     with tempfile.TemporaryDirectory() as td:
         td = pathlib.Path(td)
-        tlog = td / 'tandem.jsonl'
-        if tandem is not None:
-            tlog.write_text('\n'.join(json.dumps(r) for r in tandem) + ('\n' if tandem else ''))
+        tlog = td / 'link.jsonl'
+        if link is not None:
+            tlog.write_text('\n'.join(json.dumps(r) for r in link) + ('\n' if link else ''))
         else:
             tlog.write_text('')
-        env['LASERBRAIN_TANDEM_LOG'] = str(tlog)
+        env['LASERBRAIN_LINK_LOG'] = str(tlog)
         sdir = td / 'sessions'
         sdir.mkdir()
         # Patch STATE_DIR by writing where the hook looks — we can't easily; instead
@@ -126,7 +126,7 @@ def main():
             {'kind': 'claim', 'from': 'claude', 'payload': {'wave': 9, 'paths': ['lasermind/']}},
         ]
         tlog.write_text('\n'.join(json.dumps(r) for r in rows) + '\n')
-        g.TANDEM_LOG = tlog
+        g.LINK_LOG = tlog
         by = g.claimed_by_others('grok')
         show('grok does not see own claim as other',
              'app/locus/' not in by, repr(by))
@@ -177,7 +177,7 @@ def main():
             },
         },
         env={'LASERBRAIN_AGENT': 'claude'},
-        tandem=[
+        link=[
             {'kind': 'wave_open', 'from': 'claude', 'payload': {'wave': 42}},
             {'kind': 'claim', 'agent': 'grok', 'payload': {'wave': 42, 'paths': ['app/locus/']}},
         ],
@@ -196,7 +196,7 @@ def main():
             },
         },
         env={'LASERBRAIN_AGENT': 'grok'},
-        tandem=[
+        link=[
             {'kind': 'wave_open', 'from': 'claude', 'payload': {'wave': 42}},
             {'kind': 'claim', 'agent': 'grok', 'payload': {'wave': 42, 'paths': ['app/locus/']}},
         ],

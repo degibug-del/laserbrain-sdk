@@ -1,5 +1,117 @@
 # Changelog
 
+## 0.11.0 — 2026-07-28
+
+**`Nova` and `Skill` ship.** They were written for 0.10.0 and did not make the wheel. The
+tree and PyPI both read `0.10.0` while holding different code — the published package was
+two symbols short, and `from laserbrain import Nova`, which phronesis.world/nova prints as
+the first line a reader types, raised `ImportError` for everyone who followed it.
+
+That is the second time one version number has covered two different contents (0.9.0 did
+it with `collisions`/`route`/`manage`). The lesson taken both times and applied properly
+this time: a release is verified by installing the built artifact into a clean environment
+and importing from it, never by reading the source tree — the tree is always right, which
+is exactly why checking it proves nothing.
+
+- **`Nova(goal=...)`** — the agent. Holds skills, runs a loop, takes a reading every step.
+  `learn(name, fn)` teaches it, `use()` lists what it knows, `run(act)` drives it, and
+  `compose({name: agent})` runs a fleet and returns what no member could see from inside
+  itself: `collisions`, `route`, `fleet_catches`, `seen_only_from_above`.
+- **`Skill`** — the unit `learn` stores and `use` reports.
+- **No method sets, moves or clears a ground.** The harness freezes it at the first check.
+  Python offers no true barrier, so nova offers evidence instead: the ground is
+  fingerprinted at first reading and `ground_intact()` answers directly. Tampering does not
+  raise, it is reported — a monitor that crashes gets removed, one that tells you gets read.
+
+## 0.10.0 — 2026-07-28
+
+**supercode is the manager; laserbrain is the reference.** That division decides how much
+authority a supervisor may hold. Because the reference is always laserbrain's, supercode
+may manage freely — it acts on readings it did not author. The one thing it may not do is
+set a running agent's ground, because then laserbrain would be measuring against a
+reference the manager chose.
+
+- **`Supercode.collisions()`** — pairs of agents whose GROUNDS overlap. The reading only a
+  supervisor can take: two agents handed the same task are both perfectly grounded, both
+  advancing and correct at every step, so the duplication is invisible from inside either
+  harness and no threshold on Φ will surface it. Not a tenth verdict — the nine describe
+  one agent against one ground and keep meaning that.
+- **`Supercode.route()`** — which agent keeps the shared ground and which yields, ranked on
+  catches, then steps invested, then displacement. Returns `keep: None` when the observable
+  state gives no basis, rather than a coin-flip dressed as a decision.
+- **`Supercode.manage({name: step_fn})`** — runs N agents. Halts duplicated work, injects
+  each agent's OWN verdict into its loop, escalates to a human on persistent drift or on a
+  collision it cannot honestly decide. Authority goes up to a person, never sideways.
+- **`Harness.saw()` / `Verdict.anchored`** now have a caller: lb_coverage feeds observed
+  tool outcomes, so `anchored` reports 0.5 or 1.0 instead of 0.5 forever.
+- `test_collisions.py`, `test_route.py`, `test_manage.py`.
+
+Note: 0.9.0 shipped without collisions/route/manage while the working tree had them, so
+0.9.0 on PyPI and 0.9.0 locally were different code. That is what this release fixes, and
+check-laserbrain-parity now compares content rather than version strings.
+
+## 0.9.0 — 2026-07-27
+
+- **`oscillating` reads the GROUND, not just the reading.** `x = [x, f(x)]` makes the
+  state a pair: the ground is `x`, the verdicts are `f(x)`, and the cycle detector only
+  ever saw `f(x)`. So a genuinely circling agent was caught only when its *readings* also
+  happened to repeat periodically — a coincidence stacked on the thing being detected. The
+  harness now records the canonical spelling of each ground and checks that trail first,
+  falling back to the readings. A period-2 ground (bouncing between two files) fires at
+  step 6; the sin/cos period-4 case fires at 8, where the reading-only detector needed 11.
+- **`Harness.saw()` and `Verdict.anchored`.** Half of Φ has always been the agent's own
+  account of itself — `distance` and `progress` are simply typed in — and nothing said so.
+  `saw('tool', 'pytest', ok=True)` records what actually happened; `anchored` reports how
+  much of Φ's weight is external: 0.5 when only the frozen ground is, 1.0 when the
+  self-report is backed by observed work. `corroboration()` gives the run-level fraction.
+  **Φ is unchanged** — reweighting would move the published instrument and invalidate every
+  calibration and vector, with no data yet behind a new weight. The test that matters:
+  an agent doing the work and an agent inventing its numbers produce *identical* Φ. Only
+  `anchored` separates them.
+- **`test_anchor.py`** and ground-cycle cases in `test_cycle.py`.
+
+Note for anyone constructing `Verdict` positionally: `anchored` is the LAST field. Placing
+it earlier shifts `why` into it on every call site, which is what the first attempt did.
+
+## 0.8.1 — 2026-07-27
+
+- **`oscillating` now sees period 4.** `_cycle` tested periods 2 and 3 only, which misses
+  the canonical example of the equation the verdict was derived from: `x = [sin, f(x)]`
+  with `f = d/dx` cycles sin -> cos -> -sin -> -cos, period **four**. Sixteen readings,
+  four whole repeats, and the detector returned 0. Nothing failed — a range that is too
+  narrow does not throw, it answers "no cycle", and every reading beneath it looks healthy.
+  Now 2..6, with two whole repeats as the bar and a floor of six readings
+  (`need = max(6, 2p)`), which leaves periods 2 and 3 at exactly their previous behaviour.
+  The smallest period still wins: `[a,b,a,b,a,b]` is 2, not 4.
+- **`test_cycle.py`.** The ninth verdict shipped in three implementations with no test of
+  its own, which is why the range went unquestioned. The suite covers the declared range,
+  the deliberate cap above it, the cases that must NOT read as cycles, smallest-period-
+  wins, and an end-to-end run through a real `Harness`. It fails against the old 2..3
+  range — verified by reverting and watching six assertions go red.
+
+## 0.8.0 — 2026-07-27
+
+Minor rather than patch: nothing new was built, but three functions that already existed
+became reachable, and adding to the public API is a minor bump even when the code behind
+it is unchanged.
+
+- **Bugfinder is six, not three.** `unfalsified`, `instrument_blind` and `unrun` were
+  written alongside `residue`, `contaminated` and `stale_gate` and then left out of both
+  the import and `__all__` — so half of Bugfinder was public API and half was reachable
+  only as `laserbrain.catches.unfalsified`, which nothing documents. Splitting a set of six
+  down the middle fails no test: every name still resolves, the package still imports, and
+  the only symptom is that three of them are invisible. `__all__` is now 48.
+- **`tandem` is `link`.** Renamed everywhere it is an identifier. The Python API was
+  already `link_read` / `link_write` / `link_whoami`; what changes here is the log —
+  `LASERBRAIN_LINK_LOG` is the preferred env var and `~/.config/laserbrain/link.jsonl` the
+  default path. **Backwards compatible**: `LASERBRAIN_TANDEM_LOG` is still honoured, and
+  the legacy `tandem.jsonl` is still used when it exists and the new file does not, so an
+  un-migrated machine keeps its history instead of silently starting a fresh log.
+- **One resolver, four callers.** `link.py`, `waves.py`, `lb_gate.py` and the MCP server
+  each resolved that path independently. If they disagree, two agents "sharing" a channel
+  write to different files and each reads an empty one — which presents exactly as the
+  other agent having said nothing. All four now derive it identically.
+
 ## Unreleased (Grok process 2026-07-25)
 
 - **normalise / unwrap_tool_args**: peel Grok's name-unwrapped `use_tool` envelope so

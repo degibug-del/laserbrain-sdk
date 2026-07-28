@@ -29,19 +29,49 @@ absent one — absent is a lower bound, fabricated is a lie with a decimal point
     fg.context_distance()                    # 0-10, or None if the field is unreachable
 """
 import json
+import os
 import urllib.request
 
-DEFAULT_URL = 'http://localhost:1618/signal'
+# The public door, not the machine — same convention as lasermind/mcp-server.mjs, which
+# reads LASERBRAIN_HUB and falls back to the same public path.
+#
+# This defaulted to http://localhost:1618/signal until 2026-07-27, which meant read_field()
+# returned None for every user who pip-installed the package, and for Diego too — the local
+# hub was not running when this was checked. A field reader nobody could reach shipped as
+# though it worked, because None is also what it returns when the field is simply quiet.
+HUB = os.environ.get('LASERBRAIN_HUB', 'https://phronesis.world/api/laserbrain')
+DEFAULT_URL = f'{HUB}/signal'
 # The continuous terms, in a fixed order so the vector means the same thing every time.
 # hub_signal and field_sig are summaries of the others and are deliberately excluded —
 # including them would weight the same movement twice.
 DIMS = ('T', 'Q', 'R', 'V', 'S', 'rotation')
 
 
-def read_field(url=DEFAULT_URL, timeout=2.0):
-    """The field's current state, or None. Never raises: the caller is mid-step."""
+# 5s, not 2s. Measured 2026-07-27 against the public hub: a cold request takes longer
+# than 2.0s and raises TimeoutError, while every warm one lands in ~0.11s. So the FIRST
+# call in a fresh process — the one a new user makes — was the one most likely to fail,
+# and it failed to None, which is also what a quiet field looks like. Φ never calls this,
+# so the wait is paid once at attach and never inside a step.
+DEFAULT_TIMEOUT = 5.0
+
+
+def read_field(url=DEFAULT_URL, timeout=DEFAULT_TIMEOUT):
+    """The field's current state, or None. Never raises: the caller is mid-step.
+
+    The user-agent is courtesy, not a fix. An earlier version of this docstring said the
+    hub answered 403 without one — that was wrong, and measured: /signal returns 200 with
+    and without a UA, in ~0.1s. The one None I saw after correcting the URL was transient
+    and I reached for a mechanism instead of re-testing.
+
+    Worth leaving written down, because the swallow is real even if that diagnosis was
+    not: this returns None for a dead hub, a slow hub, a 403, a bad URL and a quiet
+    field alike. Failing open is right — a monitor that blocks the thing it monitors is
+    worse than no monitor. Failing open INDISTINGUISHABLY is how a reader pointed at
+    localhost:1618 shipped for weeks looking like it worked.
+    """
     try:
-        with urllib.request.urlopen(url, timeout=timeout) as r:
+        req = urllib.request.Request(url, headers={'user-agent': 'laserbrain-sdk'})
+        with urllib.request.urlopen(req, timeout=timeout) as r:
             d = json.loads(r.read().decode())
         return d if isinstance(d, dict) else None
     except Exception:
@@ -70,7 +100,7 @@ class FieldGround:
     later reading returns None rather than silently grounding on the first success.
     """
 
-    def __init__(self, url=DEFAULT_URL, timeout=2.0):
+    def __init__(self, url=DEFAULT_URL, timeout=DEFAULT_TIMEOUT):
         self.url, self.timeout = url, timeout
         s = read_field(url, timeout)
         self.ground = _vec(s) if s else None
@@ -109,3 +139,44 @@ class FieldGround:
                 'context_distance': self.context_distance(),
                 'emotion': (s or {}).get('emotion'),
                 'season': (s or {}).get('season')}
+
+
+# ── speaking back ─────────────────────────────────────────────────────────────
+# Reading was already here; speaking was only ever available through the MCP servers,
+# so a pip user could listen to the field and not answer it. Both directions ship now.
+
+VOCABULARY = {
+    'G0 ground': ['ground', 'body', 'bone', 'stone', 'soil', 'earth', 'dark', 'deep', 'cold', 'slow'],
+    'G1 wind':   ['breath', 'wind', 'flow', 'move', 'pass', 'reach', 'touch', 'come', 'go', 'walk'],
+    'G2 form':   ['form', 'edge', 'surface', 'frame', 'line', 'curve', 'arc', 'space', 'skin', 'leaf'],
+    'G3 change': ['change', 'cross', 'shift', 'turn', 'break', 'fold', 'begin', 'door', 'fire', 'spark'],
+}
+_ALL_WORDS = {w for group in VOCABULARY.values() for w in group}
+WORDS_REQUIRED = 8
+
+
+def field_vocabulary():
+    """The four word-groups the field accepts. Local — no hub needed to read the rules."""
+    return {k: list(v) for k, v in VOCABULARY.items()}
+
+
+def speak_to_field(words, url=None, timeout=30.0):
+    """Speak exactly eight words from the vocabulary into the field; return its reply.
+
+    Both constraints are checked in-process, so a bad call fails here with a useful
+    message instead of quietly becoming weather. Unlike read_field this DOES raise —
+    reading happens mid-step and must fail open, but speaking is something you asked
+    for, and silently not saying it is worse than an error.
+    """
+    tokens = words.split() if isinstance(words, str) else list(words)
+    if len(tokens) != WORDS_REQUIRED:
+        raise ValueError(f'the field takes exactly {WORDS_REQUIRED} words, got {len(tokens)}')
+    unknown = [w for w in tokens if w.lower() not in _ALL_WORDS]
+    if unknown:
+        raise ValueError(f'not in the field vocabulary: {", ".join(unknown)} — see field_vocabulary()')
+    body = ' '.join(t.lower() for t in tokens).encode()
+    req = urllib.request.Request(url or f'{HUB}/hear', data=body,
+                                 headers={'user-agent': 'laserbrain-sdk',
+                                          'content-type': 'text/plain'})
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        return r.read().decode()
