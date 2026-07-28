@@ -1,5 +1,39 @@
 # Changelog
 
+## 0.12.0 — 2026-07-28
+
+**`Operator` — the sixth layer, as something nova can hold.** Named in grammar 1.8.0 the
+same day. The other five layers measure, instruct, serve, define and record; this is the
+only one that acts on the world, and it is the only one whose failure cannot be corrected.
+A wrong reading is re-taken, a lost record rebuilt — a sent message is sent. It fails by
+being IRREVERSIBLE, which is the test the grammar already sets for what counts as a layer.
+
+- **`Operator(authorize=...)`** — `act(do, kind=, target=, reversible=, outward=)` runs
+  `do` only if the layer's `may_not` clause allows it. Three deliberate choices:
+  - **Default is deny.** No authorizer means every irreversible action is refused. The
+    alternative puts the burden on the person who is not in the loop, which is the
+    situation the layer exists to describe.
+  - **Approval never caches.** Every irreversible act asks again, even for an identical
+    action approved a moment earlier. Fingerprint caching would let one approval cover a
+    repeat nobody saw — a loop deleting a thousand files would ask once.
+  - **Refusal is recorded.** Taken, refused or failed, everything lands in `log`. A guard
+    that blocked something silently is indistinguishable from one never called.
+- **Reversibility is declared, never inferred.** Only the caller knows what the callable
+  does; a guard that guessed from a string would be guessing, and guessing in this
+  direction is the wrong way to be wrong. Undeclared means irreversible.
+- **`Supercode.manage()` now refuses operator work**, checked before anything runs so a
+  mixed fleet fails whole rather than half-done. Allocation is a reading; an action is not,
+  and a manager that could dispatch irreversible work would be deciding something no
+  reading gives it a basis for.
+- Not a sandbox, and does not pretend to be: `_authorize` is one line from being replaced
+  in-process. Same posture as `ground_intact()` — evidence, not a wall. What it guarantees
+  is that this cannot happen by accident, and that when it happens the log says so.
+
+Tested by mutation, not just by assertion: three mutations that genuinely open the gate are
+caught by 11, 12 and 2 assertions. A fourth that replaced the default-deny branch survived
+— correctly, since execution then fell through to calling `None` and was refused by the
+except clause anyway. Redundant guard, not a missing test.
+
 ## 0.11.0 — 2026-07-28
 
 **`Nova` and `Skill` ship.** They were written for 0.10.0 and did not make the wheel. The

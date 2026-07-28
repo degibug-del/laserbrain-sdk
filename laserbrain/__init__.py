@@ -25,7 +25,7 @@ import hashlib, json, re, urllib.request
 from pathlib import Path as _Path
 
 __all__ = ['Harness', 'Team', 'Verdict', 'PRESETS', 'norm', 'laserscore', 'verify_audit', 'ground_score', 'MAX_DEPTH']
-__version__ = '0.11.0'
+__version__ = '0.12.0'
 MAX_DEPTH = 50   # nesting deeper than this is a drift signal, not a decomposition
 API_DEFAULT = 'https://laserbrain-mcp.degibug.workers.dev'
 
@@ -1116,3 +1116,9 @@ from .write import Writer
 from .nova import Nova, Skill                                     # noqa: E402                                        # noqa: E402
 __all__ += ['Writer']
 __all__ += ['Nova', 'Skill']
+
+# ── the operator · the sixth layer, the only one that acts ────────────────────
+# Last, and after nova: it is a skill nova holds, and supercode reaches it through a
+# deferred import so the bar on routing does not make load order load-bearing.
+from .operator import Operator, Act, Refused                      # noqa: E402
+__all__ += ['Operator', 'Act', 'Refused']

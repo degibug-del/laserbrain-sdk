@@ -319,6 +319,12 @@ class Supercode:
         monitor PROOF forbids. Halting is not regrounding: stopping an agent leaves the
         decision about what happens next with whoever reads the report.
         """
+        # The operator bar, grammar 1.8.0. Checked before anything runs rather than at
+        # dispatch, so a fleet containing operator work fails whole instead of half-done —
+        # a supervisor that halted midway would have already taken some of the actions it
+        # had no basis to route.
+        _refuse_routing(agents)
+
         ctxs = {n: {'returns': 0, 'streak': 0, 'steps': 0} for n in agents}
         live = dict(agents)
         for _ in range(max_steps):
@@ -458,3 +464,10 @@ class Supercode:
             written.append(link_write(note, kind=kind, goal=self.goal, payload=r,
                                       agent='supercode'))
         return written
+
+
+def _refuse_routing(agents):
+    """Deferred import: operator.py is a peer and nova imports both, so binding it at
+    module scope would make the package's import order load-bearing for no benefit."""
+    from .operator import refuse_routing
+    return refuse_routing(agents)
