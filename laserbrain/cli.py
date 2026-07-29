@@ -4,6 +4,7 @@ laserbrain command line — the smart recursion harness, in your terminal.
     laserbrain demo                      watch an agent wander off-goal and get returned
     laserbrain check --goal "…" [--progress advancing] [--distance 6] [--against "…"]
     laserbrain verify run.json           verify an exported audit chain (tamper-evident)
+    laserbrain key                       get a free key for the hosted half
     laserbrain version
 
 Dep-free (stdlib only), like the rest of the package.
@@ -11,6 +12,7 @@ Dep-free (stdlib only), like the rest of the package.
 from __future__ import annotations
 import argparse
 import json
+import os
 import sys
 from typing import Sequence
 
@@ -77,6 +79,73 @@ def _verdict_line(v: Verdict) -> str:
     else:
         head = _c("· on track", DIM)
     return f"[{head}] {v.reason}  Φ={v.phi:.2f}  ground={ground_score(v.phi):.2f}\n  {_c(v.advice, DIM)}"
+
+
+def _key(args: argparse.Namespace) -> int:
+    """Get a key, and say plainly what it does and does not buy.
+
+    WHY THIS COMMAND EXISTS. The README has always told readers "add a key and it also
+    mirrors to the API", and until 0.24.0 the package offered no way to get one. The
+    endpoint has been public and instant the whole time — POST /v1/keys, no auth, no
+    form — so the only thing between a reader and the hosted half was knowing that.
+    On 2026-07-29 the numbers on that gap were 6,000 downloads and twelve keys ever
+    issued, two of them from testing.
+
+    It prints what the API says the tier allows rather than what the docs claim, because
+    those are different sentences that can drift apart, and only one of them is enforced.
+    """
+    from .services import KEY_PATH, ServiceUnavailable, new_key, save_key, stored_key
+
+    existing = stored_key()
+    if existing and not args.new:
+        src = 'LASERBRAIN_KEY' if os.environ.get('LASERBRAIN_KEY') else str(KEY_PATH)
+        print()
+        print("  " + _c("you already have a key", GREEN) + f"   {existing[:11]}…")
+        print(f"  {_c('from', DIM)} {src}")
+        print()
+        print(f"  {_c('laserbrain key --new', GOLD)} gets another one. It will not migrate")
+        print("  anything to the new key — a key is the identity, so a second key is a")
+        print("  second identity with its own history.")
+        print()
+        return 0
+
+    try:
+        got = new_key()
+    except ServiceUnavailable as e:
+        print()
+        print("  " + _c("could not get a key", RED) + f" — {e}")
+        print()
+        print("  Nothing is broken locally. The check is a pure function and needs no key:")
+        print("  " + _c("Harness().check(...)", GOLD) + " keeps working offline.")
+        print()
+        return 2
+
+    key = got.get('key')
+    if not key:
+        print("\n  " + _c("the API answered without a key", RED) + f" — {got}\n")
+        return 2
+
+    path = save_key(key)
+    tier = got.get('tier') or {}
+    print()
+    print("  " + _c("key saved", GREEN) + f"   {key}")
+    print(f"  {_c('→', DIM)} {path}  {_c('(0600, readable only by you)', DIM)}")
+    print()
+    print(f"  {_c('this key is on the ' + str(tier.get('name', 'ground')) + ' tier', BOLD)}, and it allows:")
+    for label, field, unit in (('reads', 'reads', '/day'), ('writes', 'writes', '/day'),
+                               ('field history', 'historyHours', 'h'),
+                               ('drift retained', 'driftDays', ' days')):
+        v = tier.get(field)
+        if v is not None:
+            print(f"    {label:16} {v}{unit}")
+    print()
+    print("  " + _c("what it adds:", BOLD) + " retained drift history, the field, and a self that")
+    print("  survives a session. " + _c("What stays free without it:", BOLD) + " the check itself —")
+    print("  Harness.check is a pure local function and never calls anything.")
+    print()
+    print("  " + _c("You pay to SEE your agents drift, not for the detector.", DIM))
+    print()
+    return 0
 
 
 def _verify(args: argparse.Namespace) -> int:
@@ -155,6 +224,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     cv = sub.add_parser("coverage", help="how much of your work the harness actually watched")
     cv.add_argument("--dir", default="~/.claude/laserbrain",
                     help="where the hook writes sessions (default: ~/.claude/laserbrain)")
+    k = sub.add_parser("key", help="get a free API key, and see what it allows")
+    k.add_argument("--new", action="store_true",
+                   help="fetch another key even if one is already stored")
     sub.add_parser("version", help="print the version")
 
     args = p.parse_args(argv)
@@ -167,6 +239,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _coverage(args)
     if args.cmd == "verify":
         return _verify(args)
+    if args.cmd == "key":
+        return _key(args)
     if args.cmd == "version":
         print(f"laserbrain {__version__}")
         return 0

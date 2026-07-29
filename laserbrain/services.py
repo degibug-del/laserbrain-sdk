@@ -17,15 +17,72 @@ from __future__ import annotations
 
 import json
 import os
+import pathlib
 
 API = os.environ.get('LASERBRAIN_API', 'https://laserbrain-mcp.degibug.workers.dev')
 _HEAD = {'content-type': 'application/json',
          'accept': 'application/json, text/event-stream',
          'user-agent': 'laserbrain-sdk'}
 
+# Where `laserbrain key` puts the key it fetches. Same directory link.py already uses,
+# because two config conventions in one package is how a machine ends up with a key the
+# SDK cannot find.
+KEY_PATH = pathlib.Path.home() / '.config' / 'laserbrain' / 'key'
+
 
 class ServiceUnavailable(RuntimeError):
     """The hosted endpoint could not be reached or refused the call."""
+
+
+def stored_key():
+    """The key to use, or None. Environment first, then the file the CLI writes.
+
+    Environment wins because it is the explicit, per-process choice — a CI job setting
+    LASERBRAIN_KEY must not be overridden by whatever happens to be on the disk of the
+    machine that built the image.
+
+    Before 0.24.0 there was only the environment, and the README told readers to "add a
+    key" without saying how. `laserbrain key` now fetches one; this is the other half —
+    without it the fetched key would sit in a file nothing reads.
+    """
+    # Strip BEFORE testing. `export LASERBRAIN_KEY=` leaves an empty string and a stray
+    # space leaves "   " — both are truthy, so testing first and stripping second returned
+    # None while a perfectly good key sat in the file. The user then has a key on disk and
+    # an SDK behaving as though they have none, with nothing to indicate why.
+    env = (os.environ.get('LASERBRAIN_KEY') or '').strip()
+    if env:
+        return env
+    try:
+        return KEY_PATH.read_text().strip() or None
+    except OSError:
+        return None
+
+
+def save_key(key: str) -> 'pathlib.Path':
+    """Write the key 0600. A credential the rest of the machine can read is a defect."""
+    KEY_PATH.parent.mkdir(parents=True, exist_ok=True)
+    # Create with the right mode rather than chmod-after-write: between the write and the
+    # chmod, the key exists at whatever the umask allows.
+    fd = os.open(str(KEY_PATH), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    try:
+        os.write(fd, (key.strip() + '\n').encode())
+    finally:
+        os.close(fd)
+    os.chmod(KEY_PATH, 0o600)   # if the file already existed, O_CREAT did not set the mode
+    return KEY_PATH
+
+
+def new_key(timeout: float = 30.0) -> dict:
+    """Ask the API for a fresh free key. No auth — a free key is how you get auth."""
+    import urllib.request
+    req = urllib.request.Request(
+        f'{API}/v1/keys', data=b'{}',
+        headers={'content-type': 'application/json', 'user-agent': 'laserbrain-sdk'})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            return json.loads(r.read() or b'{}')
+    except Exception as e:                                  # noqa: BLE001 — reported, not swallowed
+        raise ServiceUnavailable(f'could not reach {API}: {e}') from e
 
 
 def _session(timeout: float) -> str:
@@ -87,7 +144,7 @@ def compare_phrasings(a: str, b: str, timeout: float = 30.0):
 # ── guidance · free ───────────────────────────────────────────────────────────
 def ask_alice(situation: str, key: str | None = None, timeout: float = 60.0):
     """Describe a situation or stuck point; get phronesis framework guidance back."""
-    return call('ask_alice', situation=situation, key=key or os.environ.get('LASERBRAIN_KEY'),
+    return call('ask_alice', situation=situation, key=key or stored_key(),
                 timeout=timeout)
 
 
@@ -98,16 +155,16 @@ def remember_self(key: str | None = None, identity: str | None = None, purpose: 
                   now: str | None = None, mind: str | None = None, note: str | None = None,
                   timeout: float = 30.0):
     """Persist who you are against your key, so a later session can pick it up."""
-    return call('remember_self', key=key or os.environ.get('LASERBRAIN_KEY'), identity=identity,
+    return call('remember_self', key=key or stored_key(), identity=identity,
                 purpose=purpose, now=now, mind=mind, note=note, timeout=timeout)
 
 
 def resume_self(key: str | None = None, identity: str | None = None, timeout: float = 30.0):
     """Read back your ground, your last present, and your session log."""
-    return call('resume_self', key=key or os.environ.get('LASERBRAIN_KEY'),
+    return call('resume_self', key=key or stored_key(),
                 identity=identity, timeout=timeout)
 
 
 def forget_self(key: str | None = None, timeout: float = 30.0):
     """Erase the self persisted for this key. Start over as no one."""
-    return call('forget_self', key=key or os.environ.get('LASERBRAIN_KEY'), timeout=timeout)
+    return call('forget_self', key=key or stored_key(), timeout=timeout)

@@ -1,5 +1,45 @@
 # Changelog
 
+## 0.24.0 — 2026-07-29
+
+**`laserbrain key` — one command from install to a working key.**
+
+The README has told every reader since the first release: *add a key and it also mirrors
+to the API for retained drift history, alerts and the fleet view.* The package has never
+said how. `POST /v1/keys` takes an empty body, needs no auth and answers instantly — the
+only thing standing between a reader and the hosted half was knowing that endpoint exists.
+
+On 2026-07-29 the gap had a number on it: about 6,000 downloads, and twelve keys ever
+issued against the API, two of them from that afternoon's testing. One account.
+
+    laserbrain key           # a free key, saved to ~/.config/laserbrain/key
+
+It prints the limits the API reports rather than the ones the docs claim, because those
+are two sentences that can drift apart and only one of them is enforced. It says what
+stays free without a key — the check itself, which is a pure local function — because a
+signup flow that implies the product needs an account would be a lie about this product.
+
+**The other half: the SDK now reads the key it writes.** `stored_key()` resolves the
+environment first, then the file. Without that, `laserbrain key` would have written a
+credential into a file nothing loads, and every hosted call would go on quietly
+unauthenticated — which looks exactly like not having run the command. The four call
+sites in `services.py` that read `LASERBRAIN_KEY` directly now go through it.
+
+The key is written `0600`, created with that mode rather than chmod-ed afterwards, since
+between the write and the chmod it would exist at whatever the umask allows. Re-saving
+over an existing loose file tightens it back.
+
+**A blank environment variable was a bug the test caught on its first run.** `export
+LASERBRAIN_KEY=` leaves an empty string, and a stray space leaves `"   "` — both truthy.
+Testing the value before stripping it returned `None` while a perfectly good key sat in
+the file, so the user would have a key on disk and an SDK behaving as though they had
+none, with nothing anywhere to indicate why. Strip first, then test.
+
+`test_key_command.py` covers thirteen cases with the network replaced, including the two
+that are silent when wrong: that both halves name the same path, and that a second run
+does not mint a second key. A key IS the identity, so minting another would strand the
+first one's history while printing success.
+
 ## 0.23.0 — 2026-07-29
 
 **About a third off import, by not loading a network library the free check never uses.**

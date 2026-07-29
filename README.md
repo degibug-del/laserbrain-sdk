@@ -24,6 +24,16 @@ laserbrain demo          # watch an agent drift off-goal and get returned
 laserbrain check --goal "write a poem" --against "build a parser"   # a one-shot drift check
 ```
 
+And when you want the hosted half:
+
+```bash
+laserbrain key           # a free key, saved to ~/.config/laserbrain/key
+```
+
+No form, no email, no card. It prints what that key actually allows — the numbers the
+API enforces, not the ones the docs claim — and the check keeps working offline whether
+you ever run it or not.
+
 ## The check (local, free)
 
 ```python
