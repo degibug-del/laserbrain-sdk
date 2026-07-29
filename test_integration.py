@@ -33,7 +33,7 @@ with tempfile.TemporaryDirectory() as shelf:
     author.step('publish', lambda c: None, goal='upload the release to PyPI',
                 irreversible=True, outward=True)
 
-    store = Store(root=shelf)
+    store = Store(root=shelf, shipped=False)  # isolate the local shelf
     store.put(author, 'release')
     check('the author stores a method', store.list() == ['release'])
 

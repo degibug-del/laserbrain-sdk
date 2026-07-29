@@ -141,7 +141,9 @@ except ValueError:
 
 # ── 12 · the store keeps and vends ─────────────────────────────────────────────────────
 with tempfile.TemporaryDirectory() as d:
-    store = Store(root=d)
+    # shipped=False isolates the local shelf. Without it list() also returns the methods
+    # that travel inside the package, which is correct behaviour and not what this asserts.
+    store = Store(root=d, shipped=False)
     store.put(w, 'release')
     check('the store lists what it holds', store.list() == ['release'])
     got = store.get('release')
@@ -312,6 +314,37 @@ w = Workflow(goal='find out what is there')
 w.step('read', goal='load the current state')
 w.step('measure', goal='take the reading')
 check('a read-only method is not asked to record', w.lint() == [])
+
+# ── 16 · the shipped library and lookup by task ────────────────────────────────────────
+# The store is only a library if an agent that has never seen it can find something. Until
+# find() existed you had to know a method's name, which means knowing it exists.
+from laserbrain import Store as _Store   # noqa: E402
+
+lib = _Store(root='/nonexistent-so-only-shipped-methods-load')
+names = lib.list()
+check('methods ship inside the package', len(names) >= 8)
+check('  and every shipped method lints clean',
+      all(lib.get(n).lint() == [] for n in names))
+
+hits = lib.find('build the thing and put it in front of users')
+check('a task finds a method', bool(hits) and hits[0]['name'] == 'build-and-ship')
+hits = lib.find('work out why the parser is wrong and fix it')
+check('  a different task finds a different method', hits[0]['name'] == 'diagnose-and-fix')
+check('nonsense scores near zero',
+      not lib.find('xyzzy plugh frotz') or lib.find('xyzzy plugh frotz')[0]['score'] < 0.05)
+check('an empty task returns nothing', lib.find('') == [])
+
+# A local method shadows a shipped one of the same name: your release beats the generic.
+import json as _json, tempfile as _tf, os as _os   # noqa: E402
+with _tf.TemporaryDirectory() as d:
+    w = Workflow(goal='my own particular fix')
+    w.step('edit', goal='change it'); w.step('verify-change', goal='check it')
+    w.step('commit', goal='record it')
+    s2 = _Store(root=d)
+    s2.put(w, 'fix')
+    check('a local method shadows a shipped one',
+          s2.get('fix').goal == 'my own particular fix')
+    check('  and the rest of the library is still there', 'audit' in s2.list())
 
 print()
 raise SystemExit(0 if ok else 1)

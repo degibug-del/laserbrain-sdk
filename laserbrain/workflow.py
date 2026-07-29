@@ -68,6 +68,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field as _f
+from pathlib import Path
 
 from . import Harness
 from .operator import Refused
@@ -542,9 +543,78 @@ class Store:
     from someone you do not know is safe in a way that installing their package is not.
     """
 
-    def __init__(self, root=None):
-        from pathlib import Path
+    #: Methods that ship WITH laserbrain, inside the package. An agent that pip-installs
+    #: gets these without knowing anything about whoever wrote them. They are the valid
+    #: subsequences of the phase backbone — 19 of 63 combinations satisfy the five rules,
+    #: and the ones where `confirm` appears without an `act` are dropped as degenerate.
+    #: Local methods shadow shipped ones of the same name, because your release process is
+    #: more specific than the generic one.
+    SHIPPED = Path(__file__).parent / 'workflows'
+
+    def __init__(self, root=None, shipped: bool = True):
         self.root = Path(root) if root else Path.home() / '.laserbrain' / 'workflows'
+        self._shipped = self.SHIPPED if shipped else None
+
+    def _paths(self) -> dict:
+        """name -> path, local shadowing shipped."""
+        out = {}
+        if self._shipped and self._shipped.exists():
+            for p in sorted(self._shipped.glob('*.json')):
+                out[p.stem] = p
+        if self.root.exists():
+            for p in sorted(self.root.glob('*.json')):
+                out[p.stem] = p
+        return out
+
+    def find(self, task: str, top: int = 3) -> list[dict]:
+        """Given a task in words, which stored methods are for it.
+
+        This is what makes a store more than a folder. Without it an agent must already
+        know a method's name, which means it must already know the method exists — and an
+        agent handed a task it has never seen is exactly the case a library is for.
+
+        Matched with `norm` and Jaccard, the same normaliser Φ uses on goals and
+        `collisions()` uses on grounds. Nothing new is introduced: if two texts describe the
+        same work, the instrument already has an opinion about that, and this asks it.
+
+        A task is compared against the method's goal AND its step goals, because the goal
+        alone is short. "upload the wheel to PyPI" shares little with "publish a verified
+        laserbrain release" but a great deal with that method's `upload-pypi` step.
+
+        Returns rows ranked by score, best first. The caller decides what is good enough —
+        deliberately, because a threshold that silently returned nothing would look
+        identical to an empty store.
+        """
+        from . import norm
+        want = norm(task)
+        if not want:
+            return []
+        rows = []
+        for name in self._paths():
+            spec = self.vend(name)
+            goal_words = norm(spec.get('goal') or '')
+            step_words = set()
+            for s in spec.get('steps') or []:
+                step_words |= norm(s.get('goal') or '') | norm(s.get('name') or '')
+
+            def jac(a, b):
+                return len(a & b) / len(a | b) if (a or b) else 0.0
+
+            # The goal carries more weight than the steps: a method whose GOAL matches is
+            # for this task, one whose steps merely mention the words may just share
+            # vocabulary.
+            score = 0.7 * jac(want, goal_words) + 0.3 * jac(want, step_words)
+            if score > 0:
+                rows.append({'name': name, 'score': round(score, 3),
+                             'goal': spec.get('goal'),
+                             'steps': len(spec.get('steps') or []),
+                             'gated': [s['name'] for s in (spec.get('steps') or [])
+                                       if s.get('irreversible') or s.get('outward')],
+                             'shipped': name not in
+                                        {p.stem for p in self.root.glob('*.json')}
+                                        if self.root.exists() else True})
+        rows.sort(key=lambda r: -r['score'])
+        return rows[:top]
 
     def put(self, workflow: 'Workflow', name: str) -> str:
         """Store a workflow's spec. Returns the path written."""
@@ -559,9 +629,9 @@ class Store:
     def vend(self, name: str) -> dict:
         """The raw spec, as data. Readable without building or running anything."""
         import json
-        p = self.root / f'{name}.json'
-        if not p.exists():
-            raise KeyError(f'no workflow {name!r} in {self.root} — have {self.list()}')
+        p = self._paths().get(name)
+        if p is None:
+            raise KeyError(f'no workflow {name!r} — have {self.list()}')
         return json.loads(p.read_text(encoding='utf-8'))
 
     def get(self, name: str, calibration=None) -> 'Workflow':
@@ -569,9 +639,8 @@ class Store:
         return Workflow.from_spec(self.vend(name), calibration=calibration)
 
     def list(self) -> list[str]:
-        if not self.root.exists():
-            return []
-        return sorted(p.stem for p in self.root.glob('*.json'))
+        """Every method available: shipped with laserbrain plus anything stored locally."""
+        return sorted(self._paths())
 
     def catalogue(self) -> list[dict]:
         """What is on the shelf, with enough to choose by and nothing that runs."""

@@ -1,5 +1,39 @@
 # Changelog
 
+## 0.19.0 — 2026-07-29
+
+**Workflows now ship with laserbrain, and a task can find one.** Two gaps: the store had no
+lookup, so an agent had to already know a method's name — which means already knowing it
+exists — and every method was phronesis-specific, so a fresh install got an empty shelf.
+
+**The shipped library was enumerated, not invented.** The five phase rules define a
+language. Its sentences were counted: 7,895 valid phase sequences up to length 7, 2,201
+canonical once repeats collapse. That is the language and not a library — most of it is
+degenerate alternation like verify then check then verify. The useful subset is principled:
+subsequences of the backbone with each phase in order. There are 63, and **19 are valid**.
+Dropping those where `confirm` appears with no `act` — a confirm with nothing to confirm is
+just another verify — leaves eight named methods, all lint-clean:
+
+    investigate       check              audit             check → verify
+    fix               change→verify→record                 diagnose-and-fix  check→…→record
+    ship-built        verify→record→act→confirm            build-and-ship    change→…→confirm
+    promote           check→verify→record→act→confirm      full-release      the whole backbone
+
+- **`laserbrain/workflows/` is a store directory inside the package**, declared in
+  package-data beside `grammar.json` and for the same reason: a pip install cannot reach the
+  repo it came from. Verified in the built wheel, not the tree.
+- **`Store.find(task)`** ranks methods against a task using `norm` and Jaccard — the same
+  normaliser Φ uses on goals and `collisions()` uses on grounds. Nothing new is introduced:
+  if two texts describe the same work the instrument already has an opinion, and this asks
+  it. The goal is weighted above the step goals, because a method whose GOAL matches is for
+  this task while one whose steps share vocabulary may just share vocabulary.
+- **Local methods shadow shipped ones** of the same name. Your release process is more
+  specific than the generic one.
+- `Store(shipped=False)` isolates the local shelf.
+
+The returned score is deliberately not thresholded. A cutoff that silently returned nothing
+would be indistinguishable from an empty store.
+
 ## 0.18.0 — 2026-07-29
 
 **A fifth phase rule: `stale-verify`.** A change that falls between the last verify and a

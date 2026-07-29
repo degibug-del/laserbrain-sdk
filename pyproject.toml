@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "laserbrain"
-version = "0.18.0"
+version = "0.19.0"
 description = "Attach the smart recursion harness to any agent loop — a provably-correct, external check for when an AI agent (or team) has drifted from its goal."
 readme = "README.md"
 requires-python = ">=3.9"
@@ -30,7 +30,9 @@ include = ["laserbrain*"]
 # from it. Without this line the wheel silently falls back to the literals in the source,
 # which is the worst kind of failure — everything imports, every test passes locally where
 # the file is on disk, and only a pip install is quietly running different constants.
-laserbrain = ["py.typed", "grammar.json"]
+# The shipped workflow library travels the same way and for the same reason: a pip
+# install cannot reach the repo it came from.
+laserbrain = ["py.typed", "grammar.json", "workflows/*.json"]
 
 [project.optional-dependencies]
 # The default grammar has no dependencies and never will. This is opt-in, for agents
