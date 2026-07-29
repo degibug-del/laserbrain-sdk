@@ -31,6 +31,19 @@ remember to update, and it would have caught this.
   silently, so reading a vended workflow is safe in a way installing a package is not.
 - Irreversible steps route through `Operator`, so a deploy and a test run are not the same
   kind of thing. A step declared irreversible with no operator is refused, not run.
+- **`Nova.follow(workflow, operator=)`** — the seam the package was missing. `Workflow`
+  shipped as an island: nova and supercode referred to it zero times. A stored method says
+  WHAT the steps are and which cannot be taken back; it cannot say HOW, because a spec
+  carries no code. `follow` is what supplies the how — each unbound step binds to the skill
+  of the same name, through `use()`, so following leaves the same trace as any other skill
+  call. A method travels between people while the doing stays local: two agents can follow
+  one released method with entirely different implementations, and both runs are measured
+  against the same declared goals, which is what makes them comparable. A step with no
+  matching skill raises up front rather than after three steps have already run.
+
+The whole path now composes and is tested as one: an author writes a method and stores it;
+a different agent vends it, binds its own skills, and runs it under measurement with the
+operator refusing the irreversible step unless a person authorized it.
 
 Three design errors the tests caught before release, each recorded in `workflow.py`:
 sharing one harness across a sequence grounds on step one and calls every honest later step

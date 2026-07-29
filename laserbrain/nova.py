@@ -241,6 +241,59 @@ class Nova:
         return ctxs
 
     # ── what can be asked of it ─────────────────────────────────────────────────
+    def follow(self, workflow, operator=None, ctx: dict | None = None,
+               strict: bool = True) -> dict:
+        """Adopt a method and run it.
+
+            w = Store().get('release')      # vended: steps, goals, no code
+            nova.learn('test', run_tests).learn('build', build_wheel)
+            nova.follow(w, operator=op)
+
+        THIS IS THE SEAM the rest of the package was missing. A stored workflow says WHAT
+        the steps are, in what order, and which of them cannot be taken back. It cannot say
+        HOW, because a spec carries no code — that was the point of vending it. nova is what
+        supplies the how: each unbound step binds to the skill of the same name.
+
+        So a method travels between people while the doing stays local. Two agents can
+        follow the same released method with completely different implementations, and both
+        runs are measured against the same declared goals — which is what makes the two runs
+        comparable at all.
+
+        Binding goes through `use()`, so following a workflow leaves the same trace on nova
+        as any other skill call, and `catches` can read it. A step with no matching skill
+        stays unbound and raises when reached; with `strict` it raises up front instead,
+        because discovering step four is missing after steps one to three have run is the
+        expensive way to find out.
+        """
+        from .workflow import Workflow           # deferred: __init__ loads nova first
+        if not isinstance(workflow, Workflow):
+            raise TypeError('follow() takes a Workflow')
+
+        bound, missing = [], []
+        for s in workflow.steps:
+            if s.bound:
+                continue
+            if s.name in self.skills:
+                workflow.bind(s.name, lambda c, _n=s.name: self.use(_n, c))
+                bound.append(s.name)
+            else:
+                missing.append(s.name)
+
+        if missing and strict:
+            raise KeyError(
+                f'cannot follow this method: no skill for {missing}. '
+                f'nova knows {sorted(self.skills)}. Teach it with learn(name, fn), or pass '
+                'strict=False to run up to the first unbound step.')
+
+        out = workflow.run(operator=operator, ctx=ctx)
+        out['bound'] = bound
+        out['unbound'] = missing
+        # The workflow's readings are the workflow's; nova records that it followed one.
+        ev = Event(kind='tool', name='follow', ok=bool(out.get('completed')),
+                   result=f"{workflow.goal} — ran {len(out.get('ran') or [])} step(s)")
+        self.events.append(ev)
+        return out
+
     def _fingerprint(self):
         g = getattr(getattr(self._hz, '_run', None), 'ground', None)
         return None if g is None else _sha(_canon(g))
