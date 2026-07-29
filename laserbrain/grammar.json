@@ -1,5 +1,5 @@
 {
-  "laserbrain_grammar": "1.14.0",
+  "laserbrain_grammar": "1.16.0",
   "kind": "reasoning-state",
   "immutable": true,
   "fields": {
@@ -221,7 +221,7 @@
       "note": "Not a sixth layer. It lives inside laserbrain and is listed here because the reference/manager division is what makes its authority legible."
     }
   },
-  "content_hash": "9185554724951ced",
+  "content_hash": "f6e3b205623f5dca",
   "content_hash_what": "sha256 of this FILE's own lines, excluding the three that carry the version and these hashes. Deliberately not a hash of re-serialised JSON: Python and JavaScript disagree about identical content \u2014 Python escapes non-ASCII by default and writes 1.0 where JavaScript writes 1 \u2014 so a cross-language content hash compares serialisers rather than content. Both attempts failed that way before this one. Bytes are bytes. Exists because grammar 1.6.0 came to mean two different documents on 2026-07-28: seven additions under one version, canonical and live both announcing 1.6.0 with different content, while sync-grammar --check compared the copies to each other and passed.",
   "operator_patterns": {
     "what": "Shell commands whose effect cannot be taken back. Used by Operator.classify() to ESCALATE a caller's declaration, never to relax it: a command matching one of these is treated as irreversible even if the caller said otherwise, and a command matching none is left exactly as the caller declared. That asymmetry is the whole point \u2014 a classifier that could talk the guard down would be a way around it.",
@@ -284,8 +284,8 @@
     "added": "2026-07-29",
     "terms": {
       "goal": "What the agent says it is doing, spelled as text. The thing \u03a6 measures against.",
-      "ground": "The FIRST goal an agent spelled in a run, frozen. Not an average and not a rolling window \u2014 the thing it originally said it was doing. The whole theorem is that this cannot be revised mid-run.",
-      "drift": "Displacement of the current goal from the ground. Not error, not failure: an agent can fail for hours without drifting, and drift while every command succeeds.",
+      "ground": "The FIRST goal an agent spelled in a run, frozen. Not an average and not a rolling window \u2014 the thing it originally said it was doing. The whole theorem is that this cannot be revised mid-run. NOT the coherence sense: /research/dictionary defines \"Ground state\" as the configuration maximising coherence under a fixed coupling budget \u2014 an optimum. This one is a reference point, not an optimum. Same word, unrelated ideas.",
+      "drift": "Displacement of the current goal from the ground. Not error, not failure: an agent can fail for hours without drifting, and drift while every command succeeds. The research dictionary's \"Displacement\" is the analogue on the coherence side: distance from the optimum rather than from an origin.",
       "phi": "\u03a6 \u2014 the drift score. w_goal\u00b7jac(goal) + w_distance\u00b7|\u0394dist|/10 + w_progress\u00b7[progress\u2260]. Weights in calibration.",
       "laserscore": "One well-formed reading written in the grammar, canonically. \u27e8tokens\u27e9 progress dN, optionally \u2282 \u27e8parent\u27e9. Null for a state that cannot be spelled \u2014 no number is ever reported for one.",
       "verdict": "One of nine readings of one agent against one ground. Never a quality judgement: it says whether the agent is where it said it would be.",
@@ -714,7 +714,94 @@
           "record": "record alone",
           "act verify": "act with no record"
         }
+      },
+      "method_space": {
+        "what": "A shape is not a workflow. A workflow is a shape PLUS a verb at each position, so the method space is the shape language crossed with the verb assignments.",
+        "formula": "methods(n) = sum over shapes s of length n of prod over positions p in s of |verbs(phase p)|",
+        "verbs_per_phase": {
+          "check": 6,
+          "change": 6,
+          "verify": 2,
+          "record": 1,
+          "act": 9
+        },
+        "counts_by_length": {
+          "1": 8,
+          "2": 26,
+          "3": 132,
+          "4": 564,
+          "5": 2880,
+          "6": 15192,
+          "7": 85104,
+          "8": 473904,
+          "9": 2840832
+        },
+        "total_to_length_9": 3418642,
+        "is_infinite": "The shape language is infinite, so the method space is too. These are counts of a prefix, not a total.",
+        "what_is_closed": "The SHAPES are closed \u2014 a regular language with a finite pattern and decidable membership at any length. Given a fixed vocabulary the count at each length is exact.",
+        "what_is_open": "The VOCABULARY. 24 verbs is a starting set, not an inventory of every thing an agent can do. On 2026-07-29 six real step names fell outside it \u2014 tests, gates, rebuild, changelog, rehash, pypi-upload \u2014 and each was resolved by renaming rather than by adding a verb, which was right for synonyms and would be wrong for a genuinely new kind of work. A new verb changes the counts; it does not change the shapes.",
+        "uneven_on_purpose_or_not": "record has exactly ONE verb (commit) while act has nine. That asymmetry is unexamined. It may be correct \u2014 there is arguably one way to record \u2014 or it may mean record is under-specified next to archive, snapshot or log. Recorded here as a question, not settled.",
+        "well_formed_is_not_worth_having": "The language says which methods are well formed. It does not say which are useful. Thirteen are named because they correspond to recognisable jobs; the rest are valid and unnamed, and naming them would be inventing work rather than observing it.",
+        "added": "2026-07-29"
       }
     }
+  },
+  "directory": {
+    "what": "Every grammar, vocabulary and map in phronesis, and where each one lives. Written 2026-07-29 after searching the disk rather than recalling \u2014 which is how laserbrain-swift and a second dictionary were found at all.",
+    "maps": [
+      {
+        "name": "laserbrain grammar",
+        "is": "reasoning state: nine verdicts, \u03a6, the normaliser, calibration, the six layers, the operator patterns, the dictionary, the phases and the shape language",
+        "canonical": "lasermind/grammar.json",
+        "version": "1.16.0",
+        "copies": [
+          "functions/api/laserbrain/grammar.json",
+          "workers/laserbrain-mcp-remote/src/grammar.json",
+          "laserbrain-sdk/laserbrain/grammar.json"
+        ],
+        "derived": [
+          "laserbrain-swift/Tests/LaserbrainDriftTests/grammar-vectors.json (stopwords only; checked, never written)"
+        ],
+        "checked_by": "scripts/check-grammar-version.mjs, scripts/sync-grammar.mjs"
+      },
+      {
+        "name": "shape language",
+        "is": "which ordered SHAPES a method may have \u2014 a regular language over the phase alphabet, infinite, with decidable membership",
+        "canonical": "this file, dictionary.phases.shape_language",
+        "checked_by": "Workflow.lint() reports shape-unknown"
+      },
+      {
+        "name": "agent dictionary",
+        "is": "the harness vocabulary: 18 terms and 24 step verbs, each verb carrying its default position on the operator's two axes",
+        "canonical": "this file, dictionary.terms and dictionary.steps",
+        "collides_with": "research dictionary, on `ground` \u2014 see the term itself"
+      },
+      {
+        "name": "research dictionary",
+        "is": "the Coherence Framework vocabulary: ground state, displacement, the Fiedler value, the introspection ceiling",
+        "canonical": "phronesis-world/app/research/dictionary/page.tsx",
+        "collides_with": "agent dictionary, on `ground` \u2014 disambiguated on both sides 2026-07-29"
+      },
+      {
+        "name": "spectral grammar",
+        "is": "grammatical reasoning as eigenvalue decomposition of a discourse graph: text \u2192 sentence graph \u2192 Laplacian \u2192 eigenspectrum, with bands mapped to neural oscillation analogues",
+        "canonical": "phronesis-world/lib/spectral-grammar.ts",
+        "serves": "/api/spectral/analyze",
+        "note": "A different object entirely from the laserbrain grammar. It analyses TEXT; laserbrain scores an agent's spelled STATE. They share the word grammar and nothing else."
+      },
+      {
+        "name": "field vocabulary",
+        "is": "the four-band word list the live field speaks in \u2014 G0 ground, G1 wind, G2 form, G3 change",
+        "canonical": "laserbrain-sdk/laserbrain (VOCABULARY), served by field tools"
+      },
+      {
+        "name": "grammar formalization",
+        "is": "the formal write-up behind all of it",
+        "canonical": "phronesis/papers/grammar_formalization.tex",
+        "deposited": "phronesis-world/public/deposits/grammar-formalization"
+      }
+    ],
+    "the_lesson": "Two of the seven were found by searching the disk, not by remembering them. A map that is not written down is not a map, and a vocabulary nobody lists twice gets written twice.",
+    "added": "2026-07-29"
   }
 }
