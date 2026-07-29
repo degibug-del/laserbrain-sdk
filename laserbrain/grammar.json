@@ -1,5 +1,5 @@
 {
-  "laserbrain_grammar": "1.11.0",
+  "laserbrain_grammar": "1.12.0",
   "kind": "reasoning-state",
   "immutable": true,
   "fields": {
@@ -221,7 +221,7 @@
       "note": "Not a sixth layer. It lives inside laserbrain and is listed here because the reference/manager division is what makes its authority legible."
     }
   },
-  "content_hash": "a0e3a517dde69175",
+  "content_hash": "5f7e6adb941340ce",
   "content_hash_what": "sha256 of this FILE's own lines, excluding the three that carry the version and these hashes. Deliberately not a hash of re-serialised JSON: Python and JavaScript disagree about identical content \u2014 Python escapes non-ASCII by default and writes 1.0 where JavaScript writes 1 \u2014 so a cross-language content hash compares serialisers rather than content. Both attempts failed that way before this one. Bytes are bytes. Exists because grammar 1.6.0 came to mean two different documents on 2026-07-28: seven additions under one version, canonical and live both announcing 1.6.0 with different content, while sync-grammar --check compared the copies to each other and passed.",
   "operator_patterns": {
     "what": "Shell commands whose effect cannot be taken back. Used by Operator.classify() to ESCALATE a caller's declaration, never to relax it: a command matching one of these is treated as irreversible even if the caller said otherwise, and a command matching none is left exactly as the caller declared. That asymmetry is the whole point \u2014 a classifier that could talk the guard down would be a way around it.",
@@ -490,10 +490,22 @@
           "name": "change-is-recorded",
           "says": "a method that changes anything must record it",
           "from": "the grammar sync was uncommitted when a rewrite discarded it, 2026-07-29"
+        },
+        {
+          "name": "stale-verify",
+          "says": "no change may fall between the last verify and a record or act \u2014 whatever it produced would be committed or shipped unchecked",
+          "from": "grammar-bump verifies, then syncs, then records. On 2026-07-29 the synced copies were never re-checked and two of them sat at 1.7.0 while canonical was 1.9.0; a site build in another repo noticed, two versions later.",
+          "note": "The method passes the first four rules \u2014 it has a verify, it has a record, and the verify precedes the record. The shape is right and the content is still wrong. That is what this rule is for."
         }
       ],
       "advisory": "Reported, never enforced. A method may have a good reason to break one \u2014 grammar-bump has no act at all, and a read-only method needs no record. The linter says what is missing; the author decides whether it matters.",
-      "added": "2026-07-29"
+      "added": "2026-07-29",
+      "considered_and_dropped": {
+        "what": "Rules that were proposed and rejected, kept so they are not re-proposed.",
+        "check-before-change": "Two of three methods have no leading check and are correct. Not enough evidence.",
+        "act-is-gated": "Redundant \u2014 every act-phase verb already carries an irreversible or outward default, so the per-verb lint reports it.",
+        "reconcile-after-act": "Real evidence (drift vectors went stale twice on 2026-07-29) but not universal: deploy has no reconcile and is correct, so the rule would fire falsely. Revisit if a second method needs it."
+      }
     }
   }
 }

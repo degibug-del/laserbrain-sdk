@@ -433,6 +433,21 @@ class Workflow:
                             'finding': 'confirm-after-act', 'verb': None,
                             'note': 'nothing confirms the irreversible step landed — an act '
                                     'nobody checked is an assumption'})
+        # stale-verify: a change falling between the last verify and a record or act means
+        # whatever that change produced is committed or shipped unchecked. grammar-bump
+        # passes all four rules above — it has a verify, it has a record, the verify comes
+        # first — and still syncs AFTER verifying, which is how two grammar copies were
+        # recorded sitting at 1.7.0 while canonical was 1.9.0.
+        if 'verify' in order:
+            last_verify = len(order) - 1 - order[::-1].index('verify')
+            for j in range(last_verify + 1, len(order)):
+                if order[j] == 'change' and any(p in order[j + 1:] for p in ('record', 'act')):
+                    out.append({'step': seq[j][0], 'finding': 'stale-verify', 'verb': None,
+                                'note': 'this change happens after the last verify and '
+                                        'before a record or act — what it produced is '
+                                        'committed or shipped without anything checking it'})
+                    break
+
         if 'change' in order and 'record' not in order:
             out.append({'step': next(n for n, p in seq if p == 'change'),
                         'finding': 'change-is-recorded', 'verb': None,

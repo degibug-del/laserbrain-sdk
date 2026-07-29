@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.18.0 — 2026-07-29
+
+**A fifth phase rule: `stale-verify`.** A change that falls between the last verify and a
+record or act gets committed or shipped with nothing having checked it.
+
+It exists because phronesis's own `grammar-bump` method passed all four earlier rules and
+was still wrong. It has a verify, it has a record, and the verify precedes the record — but
+it syncs AFTER verifying, so the propagated copies were recorded unchecked. On 2026-07-29
+exactly that left two copies at 1.7.0 while canonical was 1.9.0, and a site build in another
+repo noticed, two versions later. The shape was right and the content was still wrong, which
+is what a fifth rule is for. The method now verifies after syncing and lints clean.
+
+Three more rules were considered and dropped, recorded in the grammar so they are not
+re-proposed: `check-before-change` (two of three methods have no leading check and are
+correct), `act-is-gated` (redundant — every act verb already carries an irreversible or
+outward default), and `reconcile-after-act` (real evidence, but `deploy` has no reconcile
+and is correct, so it would fire falsely).
+
+A rule set with invented entries is one people stop reading.
+
 ## 0.17.0 — 2026-07-29
 
 **Phases: the shape every method turns out to share, and the ordering rules that fall out

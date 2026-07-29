@@ -270,6 +270,43 @@ check('the canonical shape lints clean', w.lint() == [])
 check('  and reads as the backbone',
       phases_of(w) == ['check', 'change', 'verify', 'record', 'act', 'verify'])
 
+# stale-verify: the shape is right and the content is still wrong. This method has a
+# verify, has a record, and the verify precedes the record — it passes all four earlier
+# rules — but it changes something AFTER verifying, so what that change produced is
+# committed unchecked. It is phronesis's own grammar-bump, and it is how two grammar
+# copies were recorded sitting at 1.7.0 while canonical was 1.9.0.
+w = Workflow(goal='keep every copy honest')
+w.step('edit-canonical', goal='change the one source')
+w.step('gate', goal='the hash describes the content')
+w.step('sync', goal='propagate to every copy')
+w.step('commit-copies', goal='record the propagated files')
+kinds = {f['finding'] for f in w.lint()}
+check('a change after the last verify is caught', 'stale-verify' in kinds)
+check('  while the earlier four rules pass it',
+      not {'verify-before-record', 'record-before-act',
+           'confirm-after-act', 'change-is-recorded'} & kinds)
+
+# Adding the verify back after the change clears it.
+w = Workflow(goal='keep every copy honest')
+w.step('edit-canonical', goal='change the one source')
+w.step('gate', goal='the hash describes the content')
+w.step('sync', goal='propagate to every copy')
+w.step('verify-copies', goal='every copy matches the canonical file')
+w.step('commit-copies', goal='record the propagated files')
+check('  and verifying after the change clears it',
+      'stale-verify' not in {f['finding'] for f in w.lint()})
+
+# A trailing change with nothing recorded after it is fine — nothing ships unchecked.
+w = Workflow(goal='publish and reconcile')
+w.step('build', goal='make the artifact')
+w.step('verify-artifact', goal='the artifact is right')
+w.step('commit', goal='record the source')
+w.step('publish', goal='send it out', irreversible=True, outward=True)
+w.step('verify-published', goal='confirm it landed')
+w.step('generate-vectors', goal='update what is derived from it')
+check('a trailing reconcile is not flagged',
+      'stale-verify' not in {f['finding'] for f in w.lint()})
+
 # A read-only method needs no record, and must not be nagged for it.
 w = Workflow(goal='find out what is there')
 w.step('read', goal='load the current state')
