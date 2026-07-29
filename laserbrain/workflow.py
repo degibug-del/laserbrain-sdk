@@ -449,6 +449,23 @@ class Workflow:
                                         'committed or shipped without anything checking it'})
                     break
 
+        # The shape language, grammar 1.13.0. The rules above ask whether the steps are in
+        # a defensible ORDER; this asks whether the shape as a whole is one the language
+        # admits. A method can satisfy every ordering rule and still have a shape nothing
+        # else has — which is worth saying, because an unusual shape is either a new kind
+        # of work or a mistake, and the author is the only one who can tell which.
+        known = set((spec.get('shape_language') or {}).get('shapes') or [])
+        if known and seq:
+            shape = []
+            for _, p in seq:
+                if not shape or shape[-1] != p:
+                    shape.append(p)
+            if ' '.join(shape) not in known:
+                out.append({'step': seq[0][0], 'finding': 'shape-unknown', 'verb': None,
+                            'note': f'the shape {" → ".join(shape)} is not one the language '
+                                    'generates — either a new kind of work, or a step in '
+                                    'the wrong place'})
+
         if 'change' in order and 'record' not in order:
             out.append({'step': next(n for n, p in seq if p == 'change'),
                         'finding': 'change-is-recorded', 'verb': None,

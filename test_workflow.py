@@ -346,5 +346,58 @@ with _tf.TemporaryDirectory() as d:
           s2.get('fix').goal == 'my own particular fix')
     check('  and the rest of the library is still there', 'audit' in s2.list())
 
+# ── 17 · the shape language ────────────────────────────────────────────────────────────
+# The ordering rules ask whether steps are in a defensible order. This asks whether the
+# SHAPE as a whole is one the language generates. It was derived in four passes, each
+# forced by a real method that would not fit — the first pass covered 2 of 5.
+lib2 = _Store(root='/nonexistent-local-shelf')
+check('the shape rule is quiet on every shipped method',
+      not [f for n in lib2.list() for f in lib2.get(n).lint()
+           if f['finding'] == 'shape-unknown'])
+
+# It must be able to fire, and fire ALONE — otherwise it is just restating another rule.
+w = Workflow(goal='four cycles, all of them legitimate')
+for i in range(4):
+    w.step(f'edit-{i}', goal=f'make change number {i}')
+    w.step(f'verify-{i}', goal=f'check change number {i}')
+w.step('commit', goal='record all of it')
+found = [f['finding'] for f in w.lint()]
+check('an out-of-language shape is caught', 'shape-unknown' in found)
+check('  and caught by that rule alone', found == ['shape-unknown'])
+
+# The bound is a limitation, not a claim: three cycles is inside, four is not, and the
+# difference is the enumeration bound rather than anything wrong with the method.
+w3 = Workflow(goal='three cycles')
+for i in range(3):
+    w3.step(f'edit-{i}', goal=f'make change number {i}')
+    w3.step(f'verify-{i}', goal=f'check change number {i}')
+w3.step('commit', goal='record all of it')
+check('  three cycles is inside the bound',
+      'shape-unknown' not in [f['finding'] for f in w3.lint()])
+
+# The three structures the linear model could not express, each from a real method.
+def shape_ok(steps, goal='a method'):
+    m = Workflow(goal=goal)
+    for n, g, *rest in steps:
+        m.step(n, goal=g, irreversible=bool(rest and rest[0]),
+               outward=bool(rest and len(rest) > 1 and rest[1]))
+    return 'shape-unknown' not in [f['finding'] for f in m.lint()]
+
+check('repetition is in the language (grammar-bump)', shape_ok([
+    ('edit-canonical', 'change the source'), ('gate', 'check the hash'),
+    ('sync', 'propagate copies'), ('verify-copies', 'copies match'),
+    ('commit-copies', 'record them')]))
+check('a trailing reconcile is in the language (release)', shape_ok([
+    ('build', 'make it'), ('verify-artifact', 'check it'), ('commit', 'record it'),
+    ('publish', 'send it', True, True), ('verify-published', 'confirm it'),
+    ('generate-vectors', 'update what derives from it')]))
+check('two acts are in the language (repo-surgery)', shape_ok([
+    ('inspect-history', 'find what is oversized'),
+    ('verify-fastforward', 'nothing published is rewritten'),
+    ('commit', 'record uncommitted work'), ('generate-backup', 'clone it'),
+    ('rewrite-history', 'strip the paths', True),
+    ('verify-history', 'commits survived'), ('push', 'send it', True, True),
+    ('verify-remote', 'the remote matches')]))
+
 print()
 raise SystemExit(0 if ok else 1)

@@ -1,5 +1,40 @@
 # Changelog
 
+## 0.20.0 — 2026-07-29
+
+**The shape language, and `shape-unknown`.** Grammar 1.13.0 replaces a claim that was wrong.
+
+1.11.0 recorded a backbone — check · change · verify · record · act · confirm — and implied
+a method is a subsequence of that line. Measured against the five real methods, **only 2 of
+5 are.** The other three each broke it differently, and each break forced one production:
+
+    grammar-bump   change → verify → change → verify → record       repetition
+    release        ... act → verify → change                        trailing reconcile
+    repo-surgery   check → verify → record → change → act → verify → act → verify
+                                                                    two acts, and a verify
+                                                                    with nothing changed
+                                                                    before it
+
+The language, derived in four passes, each forced by a method that would not fit:
+
+    method     := inquiry | check? cycle+ record act_block* reconcile?
+    inquiry    := (check | verify)+        a read-only method records nothing
+    cycle      := change? verify           the change is optional - a verify may check a
+                                           precondition, not only something just changed
+    act_block  := change? act verify       repeatable; the leading change varies per block
+    reconcile  := change                   update what is generated FROM what changed
+
+Coverage by pass: **2 of 5, 4 of 5, 5 of 5, 13 of 13** including the shipped library. The
+third pass fixed a generator bug of mine rather than a gap in the grammar; the fourth added
+the read-only production, needed because `investigate` and `audit` change nothing.
+
+**174 shapes.** `lint()` reports `shape-unknown` when a method falls outside the language -
+advisory, because an unusual shape is either a new kind of work or a mistake and only the
+author can tell which.
+
+The bound is honest and recorded: cycles <= 3, acts <= 2. A legitimate four-cycle method IS
+flagged, and that is the enumeration bound rather than anything wrong with the method.
+
 ## 0.19.0 — 2026-07-29
 
 **Workflows now ship with laserbrain, and a task can find one.** Two gaps: the store had no
