@@ -1,5 +1,5 @@
 {
-  "laserbrain_grammar": "1.16.0",
+  "laserbrain_grammar": "1.17.0",
   "kind": "reasoning-state",
   "immutable": true,
   "fields": {
@@ -159,6 +159,18 @@
       "model": "x = [x, f(x)] \u2014 the state includes the measurement of itself, which is why the previous verdict is an input to the current one.",
       "widened": "1.5.0",
       "ground_first": "1.6.0"
+    },
+    "not_a_verdict": {
+      "what": "Values that appear in the `reason` field but are NOT verdicts. A verdict is a statement about the agent; these are statements about the measurement, and conflating them pollutes any analysis of the corpus.",
+      "no-reading": "The runtime could not parse the response at all. Returned with drifting=False on purpose: an unreadable reply must not manufacture a fire, because a false fire is indistinguishable from a real one and would inflate precision. A missed fire at least shows up as silence.",
+      "renamed_from": "Called `unparsed` until 2026-07-29, which read like a tenth verdict. Four records in the corpus still say `unparsed`; both names are declared here rather than rewriting history to match a later vocabulary.",
+      "free_text": "The `reason` field is unvalidated, so prose has landed in it twice. Those rows are not verdicts either and should be dropped from any analysis.",
+      "added": "2026-07-29"
+    },
+    "never_fired": {
+      "what": "Declared verdicts with no observed occurrence. Recorded because a verdict that has never fired is either unreachable, or reachable only under conditions nothing here has produced \u2014 and neither is visible from the code.",
+      "excursion": "0 occurrences in 730 checks as of 2026-07-29. It is declared in the hold class alongside grounded, advancing and reground, all of which fire routinely. Not evidence of a bug; evidence that nothing has exercised it.",
+      "added": "2026-07-29"
     }
   },
   "layers": {
@@ -221,7 +233,7 @@
       "note": "Not a sixth layer. It lives inside laserbrain and is listed here because the reference/manager division is what makes its authority legible."
     }
   },
-  "content_hash": "f6e3b205623f5dca",
+  "content_hash": "a45026703d39696a",
   "content_hash_what": "sha256 of this FILE's own lines, excluding the three that carry the version and these hashes. Deliberately not a hash of re-serialised JSON: Python and JavaScript disagree about identical content \u2014 Python escapes non-ASCII by default and writes 1.0 where JavaScript writes 1 \u2014 so a cross-language content hash compares serialisers rather than content. Both attempts failed that way before this one. Bytes are bytes. Exists because grammar 1.6.0 came to mean two different documents on 2026-07-28: seven additions under one version, canonical and live both announcing 1.6.0 with different content, while sync-grammar --check compared the copies to each other and passed.",
   "operator_patterns": {
     "what": "Shell commands whose effect cannot be taken back. Used by Operator.classify() to ESCALATE a caller's declaration, never to relax it: a command matching one of these is treated as irreversible even if the caller said otherwise, and a command matching none is left exactly as the caller declared. That asymmetry is the whole point \u2014 a classifier that could talk the guard down would be a way around it.",

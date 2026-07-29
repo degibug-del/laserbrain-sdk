@@ -521,7 +521,7 @@ def verdict_of(text):
 
     found = walk(text) or {}
     return {'drifting': bool(found.get('drifting')),
-            'reason': str(found.get('reason') or 'unparsed'),
+            'reason': str(found.get('reason') or 'no-reading'),
             'phi': found.get('phi')}
 
 
