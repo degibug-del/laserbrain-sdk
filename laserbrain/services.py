@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import json
 import os
-import urllib.request
 
 API = os.environ.get('LASERBRAIN_API', 'https://laserbrain-mcp.degibug.workers.dev')
 _HEAD = {'content-type': 'application/json',
@@ -33,6 +32,7 @@ def _session(timeout: float) -> str:
     body = json.dumps({'jsonrpc': '2.0', 'id': 1, 'method': 'initialize', 'params': {
         'protocolVersion': '2024-11-05', 'capabilities': {},
         'clientInfo': {'name': 'laserbrain-sdk', 'version': '1'}}}).encode()
+    import urllib.request
     req = urllib.request.Request(f'{API}/mcp', data=body, headers=_HEAD)
     with urllib.request.urlopen(req, timeout=timeout) as r:
         sid = r.headers.get('mcp-session-id')
@@ -54,6 +54,7 @@ def call(tool: str, timeout: float = 30.0, **args):
         body = json.dumps({'jsonrpc': '2.0', 'id': 2, 'method': 'tools/call',
                            'params': {'name': tool, 'arguments': args}}).encode()
         head = dict(_HEAD, **{'mcp-session-id': sid})
+        import urllib.request
         req = urllib.request.Request(f'{API}/mcp', data=body, headers=head)
         with urllib.request.urlopen(req, timeout=timeout) as r:
             raw = r.read().decode()

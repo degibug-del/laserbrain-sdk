@@ -30,7 +30,6 @@ absent one — absent is a lower bound, fabricated is a lie with a decimal point
 """
 import json
 import os
-import urllib.request
 
 # The public door, not the machine — same convention as lasermind/mcp-server.mjs, which
 # reads LASERBRAIN_HUB and falls back to the same public path.
@@ -70,6 +69,7 @@ def read_field(url=DEFAULT_URL, timeout=DEFAULT_TIMEOUT):
     localhost:1618 shipped for weeks looking like it worked.
     """
     try:
+        import urllib.request
         req = urllib.request.Request(url, headers={'user-agent': 'laserbrain-sdk'})
         with urllib.request.urlopen(req, timeout=timeout) as r:
             d = json.loads(r.read().decode())
@@ -175,6 +175,7 @@ def speak_to_field(words, url=None, timeout=30.0):
     if unknown:
         raise ValueError(f'not in the field vocabulary: {", ".join(unknown)} — see field_vocabulary()')
     body = ' '.join(t.lower() for t in tokens).encode()
+    import urllib.request
     req = urllib.request.Request(url or f'{HUB}/hear', data=body,
                                  headers={'user-agent': 'laserbrain-sdk',
                                           'content-type': 'text/plain'})

@@ -21,7 +21,7 @@ instrument); the multi-agent dialogue + recursion teams are the prototype extens
 """
 from __future__ import annotations
 from dataclasses import dataclass
-import hashlib, json, re, urllib.request
+import hashlib, json, re
 from pathlib import Path as _Path
 
 __all__ = ['Harness', 'Team', 'Verdict', 'PRESETS', 'norm', 'laserscore', 'verify_audit', 'ground_score', 'MAX_DEPTH']
@@ -581,6 +581,7 @@ class _Run:
 
 def _post(api, key, path, body):
     try:
+        import urllib.request
         r = urllib.request.Request(api + path, method='POST', data=json.dumps(body).encode(),
                                    headers={'authorization': f'Bearer {key}', 'content-type': 'application/json',
                                             'user-agent': 'laserbrain-sdk/0.2'})
@@ -592,6 +593,7 @@ def _post(api, key, path, body):
 
 def _get(api, key, path):
     try:
+        import urllib.request
         r = urllib.request.Request(api + path, headers={'authorization': f'Bearer {key}',
                                                         'user-agent': 'laserbrain-sdk/0.2'})
         with urllib.request.urlopen(r, timeout=8) as resp:
