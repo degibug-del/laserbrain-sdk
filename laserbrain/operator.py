@@ -285,17 +285,6 @@ class Operator:
                         target=f'{p} (delete)', reversible=False)
 
     def http(self, method: str, url: str, *, run=None, timeout: int = 30, **kw):
-        # kw goes to urllib.request.Request (headers, data). It is NOT where reversible or
-        # outward belong — those are decided from the method, per the docstring below. They
-        # used to fall through and die as `Request.__init__() got an unexpected keyword
-        # argument 'reversible'`, several frames deep, which reads like a urllib bug rather
-        # than a misuse. Caught 2026-07-29 by calling it the way the name suggests.
-        for bad in ('reversible', 'outward'):
-            if bad in kw:
-                raise TypeError(
-                    f'http() decides {bad!r} from the method — GET/HEAD/OPTIONS are reads, '
-                    f'everything else is outward and irreversible. To override, call '
-                    f'act(do, kind=\'http\', target=..., {bad}=...) directly.')
         """Make an HTTP request. Everything that is not a read is outward and irreversible.
 
         GET/HEAD/OPTIONS are treated as reads: reversible, and not marked outward. That is
@@ -305,6 +294,18 @@ class Operator:
         DELETE — is both outward and irreversible, because a request that changed something
         on someone else's machine cannot be recalled by you.
         """
+
+        # kw goes to urllib.request.Request (headers, data). It is NOT where reversible or
+        # outward belong — those are decided from the method, per the docstring above. They
+        # used to fall through and die as `Request.__init__() got an unexpected keyword
+        # argument 'reversible'`, several frames deep, which reads like a urllib bug rather
+        # than a misuse. Caught 2026-07-29 by calling it the way the name suggests.
+        for bad in ('reversible', 'outward'):
+            if bad in kw:
+                raise TypeError(
+                    f'http() decides {bad!r} from the method — GET/HEAD/OPTIONS are reads, '
+                    f'everything else is outward and irreversible. To override, call '
+                    f'act(do, kind=\'http\', target=..., {bad}=...) directly.')
         import urllib.request
         m = str(method).upper()
         read_only = m in ('GET', 'HEAD', 'OPTIONS')

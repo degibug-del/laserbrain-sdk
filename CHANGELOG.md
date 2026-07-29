@@ -1,5 +1,50 @@
 # Changelog
 
+## 0.23.0 — 2026-07-29
+
+**About a third off import, by not loading a network library the free check never uses.**
+
+Measured before changing anything, and the first hypothesis was wrong: `grammar.json` has
+grown from 1.7.0 to 1.18.0 and is parsed on every import, but `json.loads` of the whole
+57KB file costs 0.07ms. Irrelevant.
+
+The hot path needed nothing either. `Harness.check` is **0.0147ms** — about 68,000 checks a
+second — and `norm()` is 0.0009ms. There was no optimisation to make there, which is worth
+saying plainly rather than optimising something to look busy.
+
+The real cost was import, and it was `urllib.request`: imported at module level by
+`__init__`, `field` and `services`, and never touched by the free local check, which is the
+headline feature. `operator.py` already imported it lazily inside its own function, so the
+pattern existed and had simply not been applied at the top.
+
+Now lazy in all three. Measured by installing 0.22.0 and 0.23.0 from PyPI into separate
+venvs and timing 25 cold starts of each, interleaved so thermal and load drift hit both
+runs equally, minus interpreter baseline:
+
+    import cost, min     0.22.0  22.7ms     0.23.0  15.1ms     33% faster
+    import cost, median  0.22.0  23.0ms     0.23.0  15.7ms     32% faster
+    -X importtime        0.22.0  22,246us   0.23.0  13,982us   37% faster
+
+`urllib` no longer appears in the trace at all — five lines and 7,799us, gone. The
+`-X importtime` figure is higher because it attributes to the module some cost the
+end-to-end timing counts as interpreter startup; the ~32% is the one a caller feels.
+
+The network paths were verified rather than assumed: an operator `GET` returns 200 with
+61KB, importing urllib on demand at the call.
+
+**A first measurement said 0%.** Both venvs were being timed with the working copy as cwd,
+and cwd precedes site-packages on `sys.path`, so both runs imported the same local tree and
+tied exactly. A tie is what a correct null result looks like too; it was only caught because
+the check printed the version it had actually imported, and the venv holding 0.22.0 said
+0.23.0.
+
+**`Operator.http()` had a kwarg trap.** `**kw` forwards to `urllib.request.Request` for
+headers and data, so passing `reversible=` or `outward=` — which the docstring says to pass
+through `act` instead — fell through and died as `Request.__init__() got an unexpected
+keyword argument 'reversible'`, several frames deep, reading like a urllib bug rather than a
+misuse. Found by calling the method the way its name suggests. It now raises immediately and
+says where those arguments belong.
+
 ## 0.22.0 — 2026-07-29
 
 **Ships grammar 1.16.0.** 0.21.0 carried 1.14.0, so a `pip install` got a grammar two
