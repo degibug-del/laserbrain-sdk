@@ -53,9 +53,69 @@ and that if it happens deliberately the log says so.
 
 from __future__ import annotations
 
+import re
+import subprocess
 from dataclasses import dataclass, field as _f
 
 from .catches import Event
+
+_COMPILED = None
+
+
+def _patterns():
+    """The irreversible-command list, compiled once, from grammar.json.
+
+    Read from the grammar rather than typed here. The same list is what
+    lasergear/lb_safety.py enforces as a Claude Code PreToolUse deny, and that file ships
+    as a hook while this one ships on PyPI — neither can import the other, so a literal
+    list in either place becomes two lists that drift. grammar.json is already canonical,
+    already synced across four copies, and already packaged with the wheel.
+    """
+    global _COMPILED
+    if _COMPILED is None:
+        from . import _G
+        raw = _G.get('operator_patterns') or {}
+        _COMPILED = {
+            'deny': [(re.compile(r['pattern'], re.I), r['label'], bool(r.get('outward')))
+                     for r in (raw.get('irreversible') or [])],
+            'allow': [(re.compile(r['pattern'], re.I), r['label'])
+                      for r in (raw.get('allow') or [])],
+        }
+    return _COMPILED
+
+
+def classify(command: str, *, reversible: bool = False, outward: bool = False):
+    """Escalate a caller's declaration about a shell command. Never relax it.
+
+    Returns `(reversible, outward, why)`. A command matching a known-irreversible pattern
+    comes back `reversible=False` whatever the caller claimed; a command matching nothing
+    comes back exactly as the caller declared.
+
+    The asymmetry is the whole point. A classifier that could talk the guard DOWN would be
+    a way around it — `reversible=True` plus a clever string and the gate opens. This one
+    can only ever ask more often than the caller intended, which is the direction it is
+    safe to be wrong in.
+
+    An authorized carve-out (grammar `operator_patterns.allow`) is reported in `why` but
+    does NOT downgrade anything. The carve-out means a hook will not hard-block the
+    command; it does not mean the person consented to this particular run of it, and
+    "per action and per session" is the rule this module enforces.
+    """
+    text = str(command or '')
+    why = []
+    pats = _patterns()
+
+    for rx, label in pats['allow']:
+        if rx.search(text):
+            why.append(f'carve-out: {label} (still asks)')
+
+    for rx, label, is_outward in pats['deny']:
+        if rx.search(text):
+            reversible = False                    # escalate only
+            outward = outward or is_outward
+            why.append(label)
+
+    return reversible, outward, '; '.join(why)
 
 
 class Refused(Exception):
@@ -160,6 +220,27 @@ class Operator:
         self.taken += 1
         self._record(a, ok=True, note='taken')
         return out
+
+    # ── a concrete hand ────────────────────────────────────────────────────────────────
+    def shell(self, command: str, *, reversible: bool = False, outward: bool = False,
+              run=None, timeout: int = 120):
+        """Run a shell command through the gate.
+
+        The caller's declaration is passed through `classify()` first, so a command on the
+        known-irreversible list asks even when the caller said `reversible=True`. Nothing
+        the caller can write makes the gate open wider than it would have on its own.
+
+        `run` is injectable, and defaults to a real subprocess. Tests pass their own so the
+        suite never executes anything — which also means the default path is the one thing
+        here NOT covered by a test, and that is deliberate: a test that shelled out for
+        real would be a test that can delete something.
+        """
+        rev, outw, why = classify(command, reversible=reversible, outward=outward)
+        runner = run or (lambda cmd: subprocess.run(
+            cmd, shell=True, capture_output=True, text=True, timeout=timeout))
+        target = command if not why else f'{command}  [{why}]'
+        return self.act(lambda: runner(command), kind='shell', target=target,
+                        reversible=rev, outward=outw)
 
     # ── record-keeping ─────────────────────────────────────────────────────────────────
     def _refuse(self, a: Act, why: str):

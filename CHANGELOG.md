@@ -29,10 +29,35 @@ being IRREVERSIBLE, which is the test the grammar already sets for what counts a
   in-process. Same posture as `ground_intact()` — evidence, not a wall. What it guarantees
   is that this cannot happen by accident, and that when it happens the log says so.
 
-Tested by mutation, not just by assertion: three mutations that genuinely open the gate are
-caught by 11, 12 and 2 assertions. A fourth that replaced the default-deny branch survived
-— correctly, since execution then fell through to calling `None` and was refused by the
-except clause anyway. Redundant guard, not a missing test.
+**And the hand: `Operator.shell()` with `classify()`.** An Operator that wraps any callable
+is a frame; this is the first concrete thing it drives.
+
+- **`classify(command, reversible=, outward=)` escalates and never relaxes.** A command on
+  the known-irreversible list comes back `reversible=False` whatever the caller declared;
+  a command matching nothing is returned exactly as declared. The asymmetry is the point —
+  a classifier that could talk the guard DOWN would be a way around it, since
+  `reversible=True` plus a clever string would open the gate. This one can only ask more
+  often than intended, which is the safe direction to be wrong in.
+- **`shell(cmd, run=None)`** puts a command through `classify` and then through the gate.
+  `run` is injectable so the suite never executes anything — which does mean the real
+  subprocess path is the one line here without a test, deliberately: a test that shelled
+  out for real would be a test that can delete something.
+- **The patterns moved into `grammar.json` (1.9.0), not into this module.** They were only
+  in `lasergear/lb_safety.py`, which ships as a Claude Code hook and never reaches the
+  wheel. A literal copy here would be a second list that drifts — the failure this
+  codebase already recorded: "These numbers used to be typed out in nine places ... A list
+  nobody retypes needs no policing." The grammar is canonical, synced across four copies,
+  and packaged with the wheel, so the hook and the SDK now read one list. The migration
+  script read them out of `lb_safety` at runtime rather than retyping them, so the commit
+  that removes a duplicate could not introduce a transcription difference.
+- **An authorized carve-out does not downgrade anything.** It means a hook will not
+  hard-block the command; it does not mean the person consented to this run of it.
+
+Tested by mutation, not just by assertion. On the gate: three mutations that genuinely open
+it are caught by 11, 12 and 2 assertions; a fourth, replacing the default-deny branch,
+survived — correctly, since execution fell through to calling `None` and was refused by the
+except clause anyway. Redundant guard, not a missing test. On the escalation: removing it
+is caught by 6 assertions, removing the outward half by 1.
 
 ## 0.11.0 — 2026-07-28
 

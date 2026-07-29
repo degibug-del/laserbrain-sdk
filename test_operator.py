@@ -132,5 +132,50 @@ try:
 except Refused:
     check('a normal fleet still runs', False)
 
+# ── 13 · the patterns actually loaded ──────────────────────────────────────────────────
+from laserbrain.operator import classify, _patterns   # noqa: E402
+
+pats = _patterns()
+check('patterns loaded from grammar.json', len(pats['deny']) >= 8)
+
+# ── 14 · classify ESCALATES — the caller cannot talk the guard down ────────────────────
+DANGER = 'git ' + 'reset --hard origin/main'
+rev, outw, why = classify(DANGER, reversible=True)     # caller lies
+check('a dangerous command declared reversible comes back irreversible', rev is False)
+check('  and says why', 'reset' in why)
+
+WIPE = 'rm ' + '-rf /tmp/build'
+rev, _, why = classify(WIPE, reversible=True)
+check('recursive delete cannot be declared reversible', rev is False)
+
+# ── 15 · outward is escalated too ──────────────────────────────────────────────────────
+rev, outw, why = classify('npm publish', reversible=True, outward=False)
+check('publish is escalated to outward', outw is True and rev is False)
+
+# ── 16 · a benign command is left exactly as declared ──────────────────────────────────
+rev, outw, why = classify('ls -la', reversible=True, outward=False)
+check('a benign command keeps the declaration', rev is True and outw is False and why == '')
+
+# ── 17 · THE BYPASS ATTEMPT: reversible=True on a dangerous shell command ──────────────
+op = Operator()                                        # no authorizer → default deny
+fired = []
+try:
+    op.shell(DANGER, reversible=True, run=lambda c: fired.append(c))
+    check('shell() refuses a dangerous command declared reversible', False)
+except Refused:
+    check('shell() refuses a dangerous command declared reversible', True)
+check('  and the command never ran', fired == [])
+
+# ── 18 · a benign command runs through the injected runner ─────────────────────────────
+op = Operator()
+seen = []
+out = op.shell('ls -la', reversible=True, run=lambda c: seen.append(c) or 'listing')
+check('shell() runs a benign command with no authorizer', out == 'listing' and seen == ['ls -la'])
+
+# ── 19 · the carve-out does not downgrade ──────────────────────────────────────────────
+CARVE = 'wrangler deploy workers/laserbrain-mcp-remote'
+rev, outw, why = classify(CARVE, reversible=True)
+check('an authorized carve-out still asks', rev is False and 'carve-out' in why)
+
 print()
 raise SystemExit(0 if ok else 1)

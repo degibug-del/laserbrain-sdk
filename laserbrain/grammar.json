@@ -1,5 +1,5 @@
 {
-  "laserbrain_grammar": "1.8.0",
+  "laserbrain_grammar": "1.9.0",
   "kind": "reasoning-state",
   "immutable": true,
   "fields": {
@@ -221,6 +221,59 @@
       "note": "Not a sixth layer. It lives inside laserbrain and is listed here because the reference/manager division is what makes its authority legible."
     }
   },
-  "content_hash": "804fdd5ee3f2e40a",
-  "content_hash_what": "sha256 of this FILE's own lines, excluding the three that carry the version and these hashes. Deliberately not a hash of re-serialised JSON: Python and JavaScript disagree about identical content \u2014 Python escapes non-ASCII by default and writes 1.0 where JavaScript writes 1 \u2014 so a cross-language content hash compares serialisers rather than content. Both attempts failed that way before this one. Bytes are bytes. Exists because grammar 1.6.0 came to mean two different documents on 2026-07-28: seven additions under one version, canonical and live both announcing 1.6.0 with different content, while sync-grammar --check compared the copies to each other and passed."
+  "content_hash": "ba886e25809e2ac1",
+  "content_hash_what": "sha256 of this FILE's own lines, excluding the three that carry the version and these hashes. Deliberately not a hash of re-serialised JSON: Python and JavaScript disagree about identical content \u2014 Python escapes non-ASCII by default and writes 1.0 where JavaScript writes 1 \u2014 so a cross-language content hash compares serialisers rather than content. Both attempts failed that way before this one. Bytes are bytes. Exists because grammar 1.6.0 came to mean two different documents on 2026-07-28: seven additions under one version, canonical and live both announcing 1.6.0 with different content, while sync-grammar --check compared the copies to each other and passed.",
+  "operator_patterns": {
+    "what": "Shell commands whose effect cannot be taken back. Used by Operator.classify() to ESCALATE a caller's declaration, never to relax it: a command matching one of these is treated as irreversible even if the caller said otherwise, and a command matching none is left exactly as the caller declared. That asymmetry is the whole point \u2014 a classifier that could talk the guard down would be a way around it.",
+    "source": "lasergear/lb_safety.py, moved here 2026-07-28 so the SDK and the hook read one list. The hook ships as a Claude Code PreToolUse deny; the SDK ships on PyPI. Neither can import the other, and both need these.",
+    "irreversible": [
+      {
+        "pattern": "\\bgit\\s+push\\s+[^\\n]*--force\\b",
+        "label": "git push --force (force-push to remote)",
+        "outward": true
+      },
+      {
+        "pattern": "\\bgit\\s+push\\b[^\\n]*\\s-f\\b",
+        "label": "git push -f (force-push to remote)",
+        "outward": true
+      },
+      {
+        "pattern": "\\bgit\\s+push\\s+[^\\n]*--force-with-lease\\b",
+        "label": "git push --force-with-lease (rewrites remote history)",
+        "outward": true
+      },
+      {
+        "pattern": "\\bgit\\s+reset\\s+--hard\\b",
+        "label": "git reset --hard (discards uncommitted work)",
+        "outward": false
+      },
+      {
+        "pattern": "\\brm\\s+(-[a-zA-Z]*r[a-zA-Z]*f|-rf|-fr)\\b",
+        "label": "rm -rf (recursive force delete)",
+        "outward": false
+      },
+      {
+        "pattern": "\\bwrangler\\s+deploy\\b(?![^\\n|;&]*--dry-run)",
+        "label": "wrangler deploy (production Workers deploy)",
+        "outward": true
+      },
+      {
+        "pattern": "\\bnpm\\s+publish\\b",
+        "label": "npm publish (public package publish)",
+        "outward": true
+      },
+      {
+        "pattern": "\\b(twine\\s+upload|flit\\s+publish|poetry\\s+publish|uv\\s+publish|python\\d?\\s+-m\\s+twine\\s+upload)\\b",
+        "label": "package registry upload",
+        "outward": true
+      }
+    ],
+    "allow": [
+      {
+        "pattern": "\\bwrangler\\s+deploy\\b[\\s\\S]*laserbrain-mcp-remote|laserbrain-mcp-remote[\\s\\S]*\\bwrangler\\s+deploy\\b",
+        "label": "laserbrain MCP Worker deploy, authorized 2026-07-27"
+      }
+    ],
+    "allow_what": "Carve-outs authorized by the person, by date. Matched before the deny list. Kept here rather than in code so an authorization is a recorded fact with a date on it rather than a commented-out line."
+  }
 }
