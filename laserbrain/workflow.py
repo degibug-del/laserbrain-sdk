@@ -72,6 +72,20 @@ from . import Harness
 from .operator import Refused
 
 
+def _unbound(name: str):
+    """The placeholder for a step with no implementation.
+
+    Raises rather than doing nothing. A workflow that quietly skipped its unbound steps
+    would report a clean run of a process that never happened, which is the exact failure
+    this package exists to catch, reproduced by its own convenience.
+    """
+    def step_fn(ctx, _n=name):
+        raise NotImplementedError(
+            f'step {_n!r} is unbound — bind it with .bind({_n!r}, fn) before running. '
+            'A method carries the steps and their goals, not the code.')
+    return step_fn
+
+
 @dataclass
 class Step:
     """One step: a name, a goal it is for, and how it must be treated if it acts."""
@@ -143,16 +157,29 @@ class Workflow:
             return True
         return float(getattr(v, 'phi', 0.0) or 0.0) >= self.phi_min
 
-    def step(self, name: str, fn, goal: str | None = None,
+    def step(self, name: str, fn=None, goal: str | None = None,
              irreversible: bool = False, outward: bool = False) -> 'Workflow':
-        """Add a step. Returns self so definitions can chain."""
-        if not callable(fn):
-            raise TypeError(f'step {name!r} must be callable')
+        """Add a step. Returns self so definitions can chain.
+
+        `fn` is OPTIONAL, and that is the point of the whole file rather than a
+        convenience. A stored method carries no code, so authoring one means writing down
+        the steps and their goals with nothing behind them — and until this argument was
+        made optional you could vend an unbound workflow but not write one, which is an
+        asymmetry that only shows up the first time someone actually authors a method
+        instead of testing the machinery. It showed up on the first real use.
+
+        A step left unbound raises when reached, and `unbound()` lists them, so an
+        unimplemented method fails loudly rather than reporting a clean run of a process
+        that did not happen.
+        """
+        if fn is not None and not callable(fn):
+            raise TypeError(f'step {name!r} must be callable, or None to leave it unbound')
         if any(s.name == name for s in self.steps):
             raise ValueError(f'step {name!r} is already defined — names are how steps are '
                              'reported, so duplicates make the report ambiguous')
-        self.steps.append(Step(name=name, goal=goal or name, fn=fn,
-                               irreversible=irreversible, outward=outward))
+        self.steps.append(Step(name=name, goal=goal or name, fn=fn or _unbound(name),
+                               irreversible=irreversible, outward=outward,
+                               bound=fn is not None))
         return self
 
     # ── running ────────────────────────────────────────────────────────────────────────
@@ -324,17 +351,11 @@ class Workflow:
                              'not know rather than silently mis-reading it.')
         w = cls(goal=spec['goal'], calibration=calibration)
         for s in spec.get('steps') or []:
-            name = s['name']
-
-            def unbound(ctx, _n=name):
-                raise NotImplementedError(
-                    f'step {_n!r} is unbound — bind it with .bind({_n!r}, fn) before '
-                    'running. A vended workflow carries the method, not the code.')
-
-            w.step(name, unbound, goal=s.get('goal') or name,
+            # fn=None leaves it unbound — the same path authoring a method uses, so
+            # a vended workflow and a hand-written one are the same object.
+            w.step(s['name'], None, goal=s.get('goal') or s['name'],
                    irreversible=bool(s.get('irreversible')),
                    outward=bool(s.get('outward')))
-            w.steps[-1].bound = False
         return w
 
     def bind(self, name: str, fn) -> 'Workflow':

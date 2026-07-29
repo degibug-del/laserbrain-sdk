@@ -25,7 +25,7 @@ import hashlib, json, re, urllib.request
 from pathlib import Path as _Path
 
 __all__ = ['Harness', 'Team', 'Verdict', 'PRESETS', 'norm', 'laserscore', 'verify_audit', 'ground_score', 'MAX_DEPTH']
-__version__ = '0.14.0'
+__version__ = '0.15.0'
 MAX_DEPTH = 50   # nesting deeper than this is a drift signal, not a decomposition
 API_DEFAULT = 'https://laserbrain-mcp.degibug.workers.dev'
 

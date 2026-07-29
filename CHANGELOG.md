@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.15.0 — 2026-07-29
+
+**`Workflow.step()` no longer demands a callable.** Found by authoring the first real
+method rather than another test: you could VEND an unbound workflow but you could not WRITE
+one, because `step()` required an implementation while `from_spec()` happily produced steps
+without any. A stored method carries no code — that is its entire point — so authoring one
+had no path through the API. `fn` is now optional and defaults to the same unbound
+placeholder `from_spec` uses, so a hand-written method and a vended one are the same
+object.
+
+The asymmetry survived a full test suite because every test built workflows out of lambdas.
+Nothing exercised the case the feature exists for.
+
 ## 0.14.0 — 2026-07-29
 
 **The operator gets the rest of its hands.** Grammar 1.9.0 declares the layer holds "the
