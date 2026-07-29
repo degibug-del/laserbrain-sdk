@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.14.0 — 2026-07-29
+
+**The operator gets the rest of its hands.** Grammar 1.9.0 declares the layer holds "the
+shell, the filesystem, the browser, the deploy, the send". Only `shell` existed.
+
+- **`write(path, content)` reads reversibility off the disk instead of taking it on trust.**
+  This is the one place the operator can settle the question rather than believe an answer:
+  writing a file that does not exist is reversible — delete it and the world is as it was —
+  while writing over one that does destroys content with no other copy. So `write` has no
+  `reversible` parameter at all. Offering one would only create a way to be wrong about a
+  fact already sitting in the filesystem. The same call with the same arguments is allowed
+  the first time and refused the second, which is correct and is tested.
+- **`delete(path)` is never reversible and never recursive.** A directory raises outright,
+  even with an approving authorizer. A tree delete is the action most likely to be
+  regretted, `rm -rf` is already on the escalation list for `shell`, and an operator that
+  offered a convenient one-call version would hand back exactly what the layer exists to
+  slow down.
+- **`http(method, url)`** — GET/HEAD/OPTIONS are treated as reads and pass; POST, PUT,
+  PATCH and DELETE are outward and irreversible, because a request that changed something
+  on someone else's machine cannot be recalled by you. The read exemption is a judgment and
+  is documented as one: an API that mutates on GET exists, and any request tells the far
+  end you made it.
+
+Everything still routes through the one gate, so the guarantees from 0.12.0 hold unchanged:
+default deny, approval never caches, and every refusal is recorded rather than silent.
+
 ## 0.13.0 — 2026-07-28
 
 **`Workflow` and `Store`, which 0.12.0 was supposed to carry and did not.** The wheel was

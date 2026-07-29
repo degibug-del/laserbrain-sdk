@@ -242,6 +242,70 @@ class Operator:
         return self.act(lambda: runner(command), kind='shell', target=target,
                         reversible=rev, outward=outw)
 
+    def write(self, path, content: str, *, run=None, encoding: str = 'utf-8'):
+        """Write a file. Reversibility is READ OFF THE DISK, not declared.
+
+        This is the one place the operator can settle the question rather than trust an
+        answer. Writing a file that does not exist is reversible — delete it and the world
+        is as it was. Writing over one that does exist destroys content that has no other
+        copy, and no amount of care in the caller changes that.
+
+        So `write` does not take a `reversible` argument at all. Offering one would only
+        create a way to be wrong about a fact already sitting in the filesystem.
+        """
+        import os
+        p = str(path)
+        exists = os.path.exists(p)
+
+        def _do():
+            with open(p, 'w', encoding=encoding) as fh:
+                return fh.write(content)
+
+        return self.act(run or _do, kind='file',
+                        target=f'{p} ({"overwrite" if exists else "create"})',
+                        reversible=not exists)
+
+    def delete(self, path, *, run=None):
+        """Delete a file. Never reversible, and never declared otherwise.
+
+        Deliberately not recursive. A tree delete is the single action most likely to be
+        regretted, and `rm -rf` is already on the escalation list for `shell` — an operator
+        that offered a convenient one-call version of it would be handing back exactly what
+        the layer exists to slow down. Call it per path, or go through `shell` and be
+        asked.
+        """
+        import os
+        p = str(path)
+        if os.path.isdir(p):
+            raise IsADirectoryError(
+                f'{p} is a directory. This hand deletes one file at a time on purpose — '
+                'recursive delete is the action the operator layer exists to make you '
+                'say out loud.')
+        return self.act(run or (lambda: os.remove(p)), kind='file',
+                        target=f'{p} (delete)', reversible=False)
+
+    def http(self, method: str, url: str, *, run=None, timeout: int = 30, **kw):
+        """Make an HTTP request. Everything that is not a read is outward and irreversible.
+
+        GET/HEAD/OPTIONS are treated as reads: reversible, and not marked outward. That is
+        a JUDGMENT, and it can be wrong — an API that mutates on GET exists, and any
+        request reveals to the far end that you made it. Pass `outward=True` through `act`
+        if the read itself is the sensitive part. Everything else — POST, PUT, PATCH,
+        DELETE — is both outward and irreversible, because a request that changed something
+        on someone else's machine cannot be recalled by you.
+        """
+        import urllib.request
+        m = str(method).upper()
+        read_only = m in ('GET', 'HEAD', 'OPTIONS')
+
+        def _do():
+            req = urllib.request.Request(url, method=m, **kw)
+            with urllib.request.urlopen(req, timeout=timeout) as r:
+                return {'status': r.status, 'body': r.read()}
+
+        return self.act(run or _do, kind='http', target=f'{m} {url}',
+                        reversible=read_only, outward=not read_only)
+
     # ── record-keeping ─────────────────────────────────────────────────────────────────
     def _refuse(self, a: Act, why: str):
         self.refused += 1

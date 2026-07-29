@@ -177,5 +177,70 @@ CARVE = 'wrangler deploy workers/laserbrain-mcp-remote'
 rev, outw, why = classify(CARVE, reversible=True)
 check('an authorized carve-out still asks', rev is False and 'carve-out' in why)
 
+# ── 20 · write: reversibility is read off the disk, not declared ───────────────────────
+import os          # noqa: E402
+import tempfile    # noqa: E402
+
+with tempfile.TemporaryDirectory() as d:
+    fresh = os.path.join(d, 'new.txt')
+    op = Operator()                                   # no authorizer at all
+    op.write(fresh, 'hello')
+    check('creating a new file needs no authorizer', open(fresh).read() == 'hello')
+
+    # Same call, same arguments, same operator — different answer, because the disk changed.
+    try:
+        op.write(fresh, 'clobbered')
+        check('overwriting an existing file is refused', False)
+    except Refused:
+        check('overwriting an existing file is refused', True)
+    check('  and the original content survives', open(fresh).read() == 'hello')
+
+    op2 = Operator(authorize=lambda a: True)
+    op2.write(fresh, 'approved')
+    check('an approved overwrite goes through', open(fresh).read() == 'approved')
+
+# ── 21 · delete: never reversible, and not recursive ───────────────────────────────────
+with tempfile.TemporaryDirectory() as d:
+    f = os.path.join(d, 'x.txt')
+    open(f, 'w').write('data')
+    op = Operator()
+    try:
+        op.delete(f)
+        check('deleting a file is refused with no authorizer', False)
+    except Refused:
+        check('deleting a file is refused with no authorizer', True)
+    check('  and the file is still there', os.path.exists(f))
+
+    sub = os.path.join(d, 'tree')
+    os.mkdir(sub)
+    try:
+        Operator(authorize=lambda a: True).delete(sub)
+        check('a directory is refused outright, even when authorized', False)
+    except IsADirectoryError:
+        check('a directory is refused outright, even when authorized', True)
+    check('  and the directory survives', os.path.isdir(sub))
+
+    Operator(authorize=lambda a: True).delete(f)
+    check('an authorized file delete goes through', not os.path.exists(f))
+
+# ── 22 · http: reads pass, writes ask ──────────────────────────────────────────────────
+op = Operator()                                        # no authorizer
+seen = []
+got = op.http('GET', 'https://example.invalid/x', run=lambda: seen.append('GET') or 'body')
+check('a GET needs no authorizer', got == 'body' and seen == ['GET'])
+
+for verb in ('POST', 'PUT', 'PATCH', 'DELETE'):
+    fired = []
+    try:
+        op.http(verb, 'https://example.invalid/x', run=lambda: fired.append(verb))
+        check(f'{verb} is refused with no authorizer', False)
+    except Refused:
+        check(f'{verb} is refused with no authorizer', True)
+    if fired:
+        check(f'  {verb} never left the machine', False)
+
+# ── 23 · every one of those is in the log ──────────────────────────────────────────────
+check('refusals and actions all land in the log', len(op.log) == 5 and op.taken == 1)
+
 print()
 raise SystemExit(0 if ok else 1)
