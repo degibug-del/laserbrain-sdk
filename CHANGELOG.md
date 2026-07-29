@@ -1,5 +1,39 @@
 # Changelog
 
+## 0.17.0 — 2026-07-29
+
+**Phases: the shape every method turns out to share, and the ordering rules that fall out
+of it.** Grammar 1.11.0.
+
+Three methods were written independently, from three unrelated real failures, and then
+mapped onto their step verbs:
+
+    deploy         change → verify → record → act → verify
+    grammar-bump   change → change → change → verify → change → record
+    release        check → change → change → change → verify → record → act → verify → change
+
+Collapsing repeats leaves one backbone — **change · verify · record · act · confirm** — with
+an optional leading `check` and trailing `reconcile`. It was derived, not designed.
+
+Four ordering rules come out of it, and each is a thing that actually went wrong this week,
+which is why they are rules rather than preferences:
+
+- **verify-before-record** — a commit and push went out on a RED build, because the steps
+  were separate shell lines and a failed verify did not stop the record after it.
+- **record-before-act** — an irreversible act whose source is unsaved cannot be reproduced.
+- **confirm-after-act** — both PyPI uploads this week needed a retry that only a confirm
+  step would have caught.
+- **change-is-recorded** — the grammar sync was left uncommitted when a history rewrite
+  discarded it. A generated file that is not recorded is not synced, only currently correct.
+
+`Workflow.phases()` returns the sequence; `lint()` now reports shape as well as per-step
+declarations. Advisory, like the rest of it: `grammar-bump` legitimately has no `act`, and a
+read-only method needs no `record`, so the linter says what is missing and the author
+decides whether it matters.
+
+Verified against the failures rather than fixtures — each of the three, rebuilt as a method,
+fires the rule that describes it.
+
 ## 0.16.0 — 2026-07-29
 
 **An agent-native dictionary, and `Workflow.lint()` that uses it.** Grammar 1.10.0 adds a

@@ -229,5 +229,52 @@ w.step('frobnicate', lambda c: {'progress': 'advancing', 'distance': 1},
 check('a method with findings still runs — lint advises, never overrides',
       w.run()['completed'] is True and len(w.lint()) == 1)
 
+# ── 15 · the phase rules ───────────────────────────────────────────────────────────────
+# Each of these is a real failure from 2026-07-28/29, rebuilt as a method. If the rules do
+# not fire here they are decoration.
+def phases_of(w):
+    return [p for _, p in w.phases() if p]
+
+
+w = Workflow(goal='ship the site')
+w.step('build', goal='build the site')
+w.step('commit', goal='save the source')
+w.step('deploy', goal='put it in front of users', irreversible=True, outward=True)
+kinds = {f['finding'] for f in w.lint()}
+check('a method that records without verifying is caught',
+      'verify-before-record' in kinds)
+check('  and one that acts without confirming', 'confirm-after-act' in kinds)
+
+w = Workflow(goal='publish the wheel')
+w.step('build-wheel', goal='produce the distributable')
+w.step('upload-pypi', goal='send the wheel out', irreversible=True, outward=True)
+w.step('verify-published', goal='check it landed')
+kinds = {f['finding'] for f in w.lint()}
+check('a method that acts before recording is caught', 'record-before-act' in kinds)
+
+w = Workflow(goal='sync the grammar')
+w.step('edit-canonical', goal='change the one source')
+w.step('sync', goal='propagate to every copy')
+kinds = {f['finding'] for f in w.lint()}
+check('a method that changes and never records is caught', 'change-is-recorded' in kinds)
+
+# The backbone, and a well-shaped method passing all four.
+w = Workflow(goal='ship a verified thing')
+w.step('test', goal='the preconditions hold')
+w.step('build', goal='produce the artifact')
+w.step('verify-artifact', goal='the artifact is what it should be')
+w.step('commit', goal='record the source of this')
+w.step('publish', goal='make it available', irreversible=True, outward=True)
+w.step('verify-published', goal='confirm it landed')
+check('the canonical shape lints clean', w.lint() == [])
+check('  and reads as the backbone',
+      phases_of(w) == ['check', 'change', 'verify', 'record', 'act', 'verify'])
+
+# A read-only method needs no record, and must not be nagged for it.
+w = Workflow(goal='find out what is there')
+w.step('read', goal='load the current state')
+w.step('measure', goal='take the reading')
+check('a read-only method is not asked to record', w.lint() == [])
+
 print()
 raise SystemExit(0 if ok else 1)

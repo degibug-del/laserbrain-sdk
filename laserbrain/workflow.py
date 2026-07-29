@@ -371,6 +371,74 @@ class Workflow:
                 out.append({'step': s.name, 'finding': 'goal-restates-name', 'verb': verb,
                             'note': 'the goal adds nothing to the name, so there is nothing '
                                     'for the step to be scored against'})
+
+        out.extend(self._phase_findings())
+        return out
+
+    def phases(self) -> list[tuple]:
+        """This method as a sequence of (step, phase). Unmapped verbs give phase None."""
+        from . import _G
+        of_verb = (((_G.get('dictionary') or {}).get('phases') or {}).get('of_verb') or {})
+        seq = []
+        for s in self.steps:
+            verb = re.split(r'[-_ ]', s.name.strip().lower())[0]
+            seq.append((s.name, of_verb.get(verb)))
+        return seq
+
+    def _phase_findings(self) -> list[dict]:
+        """Check the method's SHAPE, not its individual steps.
+
+        Every method eventually has the same backbone — change · verify · record · act ·
+        confirm — and that was derived rather than designed: three methods written
+        independently for unrelated jobs produced it. The ordering rules below are each a
+        real failure from 2026-07-28/29, which is why they are rules:
+
+        a commit and push went out on a red build (verify-before-record); 0.12.0 was
+        published against a wheel built before the code existed (record/verify then act);
+        a grammar sync was left uncommitted and a rewrite discarded it (change-is-recorded).
+
+        Advisory, like the rest of lint. grammar-bump legitimately has no `act` at all, and
+        a read-only method needs no `record` — the linter says what is missing and the
+        author decides whether it matters.
+        """
+        from . import _G
+        spec = ((_G.get('dictionary') or {}).get('phases') or {})
+        if not spec:
+            return []
+        seq = [(n, p) for n, p in self.phases() if p]
+        order = [p for _, p in seq]
+        out = []
+
+        def before(a, b):
+            """Is there an `a` phase anywhere before the first `b`?"""
+            if b not in order:
+                return True
+            return a in order[:order.index(b)]
+
+        if 'record' in order and not before('verify', 'record'):
+            out.append({'step': next(n for n, p in seq if p == 'record'),
+                        'finding': 'verify-before-record', 'verb': None,
+                        'note': 'nothing verifies this method before it records — a commit '
+                                'on an unchecked change is how a red build reached the '
+                                'remote'})
+        if 'act' in order and not before('record', 'act'):
+            out.append({'step': next(n for n, p in seq if p == 'act'),
+                        'finding': 'record-before-act', 'verb': None,
+                        'note': 'the irreversible step comes before anything is recorded, '
+                                'so a bad outcome cannot be reproduced from source'})
+        if 'act' in order:
+            i = order.index('act')
+            if 'verify' not in order[i + 1:]:
+                out.append({'step': next(n for n, p in seq if p == 'act'),
+                            'finding': 'confirm-after-act', 'verb': None,
+                            'note': 'nothing confirms the irreversible step landed — an act '
+                                    'nobody checked is an assumption'})
+        if 'change' in order and 'record' not in order:
+            out.append({'step': next(n for n, p in seq if p == 'change'),
+                        'finding': 'change-is-recorded', 'verb': None,
+                        'note': 'this method changes things and records none of them; a '
+                                'generated file that is not committed is not synced, only '
+                                'currently correct'})
         return out
 
     # ── storing and vending ────────────────────────────────────────────────────────────

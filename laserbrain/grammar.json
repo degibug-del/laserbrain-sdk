@@ -1,5 +1,5 @@
 {
-  "laserbrain_grammar": "1.10.0",
+  "laserbrain_grammar": "1.11.0",
   "kind": "reasoning-state",
   "immutable": true,
   "fields": {
@@ -221,7 +221,7 @@
       "note": "Not a sixth layer. It lives inside laserbrain and is listed here because the reference/manager division is what makes its authority legible."
     }
   },
-  "content_hash": "03590755ebde0f01",
+  "content_hash": "a0e3a517dde69175",
   "content_hash_what": "sha256 of this FILE's own lines, excluding the three that carry the version and these hashes. Deliberately not a hash of re-serialised JSON: Python and JavaScript disagree about identical content \u2014 Python escapes non-ASCII by default and writes 1.0 where JavaScript writes 1 \u2014 so a cross-language content hash compares serialisers rather than content. Both attempts failed that way before this one. Bytes are bytes. Exists because grammar 1.6.0 came to mean two different documents on 2026-07-28: seven additions under one version, canonical and live both announcing 1.6.0 with different content, while sync-grammar --check compared the copies to each other and passed.",
   "operator_patterns": {
     "what": "Shell commands whose effect cannot be taken back. Used by Operator.classify() to ESCALATE a caller's declaration, never to relax it: a command matching one of these is treated as irreversible even if the caller said otherwise, and a command matching none is left exactly as the caller declared. That asymmetry is the whole point \u2014 a classifier that could talk the guard down would be a way around it.",
@@ -423,6 +423,77 @@
         "outward": true,
         "gloss": "spend money"
       }
+    },
+    "phases": {
+      "what": "The shape every method turns out to share. Derived from three methods written independently for unrelated jobs \u2014 release, deploy and grammar-bump \u2014 not designed up front.",
+      "backbone": [
+        "check",
+        "change",
+        "verify",
+        "record",
+        "act",
+        "confirm",
+        "reconcile"
+      ],
+      "meaning": {
+        "check": "establish the preconditions; changes nothing",
+        "change": "make the thing, locally and reversibly",
+        "verify": "confirm the change is what it should be, BEFORE it is recorded",
+        "record": "commit it, so what happens next can be reproduced or undone",
+        "act": "the irreversible or outward step \u2014 the one the operator gates",
+        "confirm": "check the act actually landed, from outside",
+        "reconcile": "update everything generated FROM what just changed"
+      },
+      "of_verb": {
+        "read": "check",
+        "inspect": "check",
+        "search": "check",
+        "measure": "check",
+        "test": "check",
+        "plan": "check",
+        "build": "change",
+        "generate": "change",
+        "edit": "change",
+        "bump": "change",
+        "sync": "change",
+        "bind": "change",
+        "verify": "verify",
+        "gate": "verify",
+        "commit": "record",
+        "delete": "act",
+        "rewrite": "act",
+        "migrate": "act",
+        "publish": "act",
+        "deploy": "act",
+        "send": "act",
+        "upload": "act",
+        "push": "act",
+        "purchase": "act"
+      },
+      "rules": [
+        {
+          "name": "verify-before-record",
+          "says": "a record step must be preceded by a verify",
+          "from": "a commit and push went out on a red build, 2026-07-29"
+        },
+        {
+          "name": "record-before-act",
+          "says": "an act step must be preceded by a record",
+          "from": "an irreversible act whose source is unsaved cannot be reproduced"
+        },
+        {
+          "name": "confirm-after-act",
+          "says": "an act step must be followed by a verify",
+          "from": "both PyPI uploads this week needed a retry a confirm would have caught"
+        },
+        {
+          "name": "change-is-recorded",
+          "says": "a method that changes anything must record it",
+          "from": "the grammar sync was uncommitted when a rewrite discarded it, 2026-07-29"
+        }
+      ],
+      "advisory": "Reported, never enforced. A method may have a good reason to break one \u2014 grammar-bump has no act at all, and a read-only method needs no record. The linter says what is missing; the author decides whether it matters.",
+      "added": "2026-07-29"
     }
   }
 }
