@@ -66,6 +66,7 @@ WHAT MAKES IT AGENT-NATIVE RATHER THAN A PIPELINE
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field as _f
 
 from . import Harness
@@ -307,6 +308,70 @@ class Workflow:
             far = '  ← departed' if s.ran and self._departed(s.verdict) else ''
             lines.append(f'  {mark} {s.name:<14} {getattr(s.verdict, "laserscore", "") or ""}{far}')
         return '\n'.join(lines)
+
+    # ── checking a method before it is ever run ────────────────────────────────────────
+    def lint(self) -> list[dict]:
+        """Check this method against the grammar's dictionary. Reports; never overrides.
+
+        A method is a design, and a design can be wrong before anything executes. The
+        dictionary records, for each step verb, its DEFAULT position on the operator's two
+        axes — so `publish` declared reversible is catchable while writing the method
+        rather than while uploading.
+
+        Findings, in the order they matter:
+
+        `under-declared`  the verb is normally irreversible or outward and this step is not
+                          marked so. The dangerous direction: at run time the Operator will
+                          wave it through without asking anyone.
+        `over-declared`   marked stricter than the verb's default. Harmless — it only asks
+                          more often — and reported so the disagreement is visible, not
+                          because it is wrong.
+        `unknown-verb`    the leading word is not in the dictionary. Not an error; it is how
+                          the dictionary learns it is incomplete. But two methods using
+                          different words for one step cannot be compared, which is the
+                          whole reason the vocabulary exists.
+        `goal-restates-name`
+                          the step's goal adds nothing to its name. A goal is what the step
+                          is FOR, and a step whose goal restates its name cannot be scored
+                          against anything — the harness would be comparing a phrase to
+                          itself.
+
+        Deliberately advisory. Only the author knows what a step actually does, so a linter
+        that refused to store a method it disagreed with would be substituting a default for
+        a fact.
+        """
+        from . import _G, norm
+        table = ((_G.get('dictionary') or {}).get('steps') or {})
+        out = []
+        for s in self.steps:
+            verb = re.split(r'[-_ ]', s.name.strip().lower())[0]
+            spec = table.get(verb)
+
+            if spec is None:
+                out.append({'step': s.name, 'finding': 'unknown-verb', 'verb': verb,
+                            'note': 'not in the dictionary — methods using different words '
+                                    'for one step cannot be compared'})
+            else:
+                want_irrev = not spec['reversible']
+                if want_irrev and not s.irreversible:
+                    out.append({'step': s.name, 'finding': 'under-declared', 'verb': verb,
+                                'note': f'{verb!r} is normally irreversible ({spec["gloss"]}) '
+                                        'but this step is not declared so — the operator '
+                                        'will not ask before running it'})
+                if spec['outward'] and not s.outward:
+                    out.append({'step': s.name, 'finding': 'under-declared', 'verb': verb,
+                                'note': f'{verb!r} normally leaves this machine but this '
+                                        'step is not declared outward'})
+                if s.irreversible and not want_irrev:
+                    out.append({'step': s.name, 'finding': 'over-declared', 'verb': verb,
+                                'note': f'{verb!r} is normally reversible; this asks more '
+                                        'often than the default, which is not a fault'})
+
+            if norm(s.goal) == norm(s.name):
+                out.append({'step': s.name, 'finding': 'goal-restates-name', 'verb': verb,
+                            'note': 'the goal adds nothing to the name, so there is nothing '
+                                    'for the step to be scored against'})
+        return out
 
     # ── storing and vending ────────────────────────────────────────────────────────────
     #

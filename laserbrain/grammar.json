@@ -1,5 +1,5 @@
 {
-  "laserbrain_grammar": "1.9.0",
+  "laserbrain_grammar": "1.10.0",
   "kind": "reasoning-state",
   "immutable": true,
   "fields": {
@@ -221,7 +221,7 @@
       "note": "Not a sixth layer. It lives inside laserbrain and is listed here because the reference/manager division is what makes its authority legible."
     }
   },
-  "content_hash": "ba886e25809e2ac1",
+  "content_hash": "03590755ebde0f01",
   "content_hash_what": "sha256 of this FILE's own lines, excluding the three that carry the version and these hashes. Deliberately not a hash of re-serialised JSON: Python and JavaScript disagree about identical content \u2014 Python escapes non-ASCII by default and writes 1.0 where JavaScript writes 1 \u2014 so a cross-language content hash compares serialisers rather than content. Both attempts failed that way before this one. Bytes are bytes. Exists because grammar 1.6.0 came to mean two different documents on 2026-07-28: seven additions under one version, canonical and live both announcing 1.6.0 with different content, while sync-grammar --check compared the copies to each other and passed.",
   "operator_patterns": {
     "what": "Shell commands whose effect cannot be taken back. Used by Operator.classify() to ESCALATE a caller's declaration, never to relax it: a command matching one of these is treated as irreversible even if the caller said otherwise, and a command matching none is left exactly as the caller declared. That asymmetry is the whole point \u2014 a classifier that could talk the guard down would be a way around it.",
@@ -275,5 +275,154 @@
       }
     ],
     "allow_what": "Carve-outs authorized by the person, by date. Matched before the deny list. Kept here rather than in code so an authorization is a recorded fact with a date on it rather than a commented-out line."
+  },
+  "dictionary": {
+    "what": "The words an agent uses to describe its own work, and the verbs a method uses to name its steps. Terms fix the nouns so they stop drifting; steps fix the verbs so two people writing the same method produce something alignable.",
+    "why_steps_carry_risk": "Each verb records its DEFAULT position on the operator's two axes. That lets a method be CHECKED at design time rather than described: a step named publish that is not declared irreversible is almost certainly wrong, and it is better to learn that while writing the method than while running it.",
+    "same_taxonomy_as": "operator_patterns \u2014 that classifies shell strings about to run, this classifies step verbs being designed. One taxonomy, two surfaces.",
+    "defaults_not_rules": "A default is what the verb usually means, not what it always means. An author may declare otherwise; the linter reports the disagreement rather than overriding it, because only the author knows what the step actually does.",
+    "added": "2026-07-29",
+    "terms": {
+      "goal": "What the agent says it is doing, spelled as text. The thing \u03a6 measures against.",
+      "ground": "The FIRST goal an agent spelled in a run, frozen. Not an average and not a rolling window \u2014 the thing it originally said it was doing. The whole theorem is that this cannot be revised mid-run.",
+      "drift": "Displacement of the current goal from the ground. Not error, not failure: an agent can fail for hours without drifting, and drift while every command succeeds.",
+      "phi": "\u03a6 \u2014 the drift score. w_goal\u00b7jac(goal) + w_distance\u00b7|\u0394dist|/10 + w_progress\u00b7[progress\u2260]. Weights in calibration.",
+      "laserscore": "One well-formed reading written in the grammar, canonically. \u27e8tokens\u27e9 progress dN, optionally \u2282 \u27e8parent\u27e9. Null for a state that cannot be spelled \u2014 no number is ever reported for one.",
+      "verdict": "One of nine readings of one agent against one ground. Never a quality judgement: it says whether the agent is where it said it would be.",
+      "reground": "The verdict for a goal the USER replaced. The only one needing a signal from outside the loop \u2014 an agent cannot reground itself, because something that can choose its own reference does not have one.",
+      "catch": "An error something OTHER than the harness found, recorded with the step it happened at. The only external reference the corpus holds.",
+      "coverage": "Fraction of steps on which a check was actually taken. Below the floor, a zero-fire result carries no information.",
+      "anchored": "How much of \u03a6 rests outside the agent\u2019s own account of itself. The goal term is anchored; distance and progress are whatever the agent typed.",
+      "skill": "A capability an agent holds, and the record of it having been used.",
+      "method": "A workflow as data: ordered steps, the goal each is for, and which act on the world. Carries NO code \u2014 that is what makes it safe to vend.",
+      "step": "One unit of a method: a name, a goal it is for, and how it must be treated if it acts.",
+      "bind": "Supply the implementation for a step of a vended method. The method says what; binding says how.",
+      "reversible": "An action whose effect can be undone by the actor. Declared, except for writes, where it is read off the disk.",
+      "outward": "An action that leaves this machine and touches something another person can already have seen. Outward matters even when reversible.",
+      "operator": "The sixth layer \u2014 the only one that acts on the world. Fails by being irreversible.",
+      "collision": "Two agents whose grounds overlap: the same job, twice. Visible only to a supervisor, because both agents are perfectly on their own ground."
+    },
+    "steps": {
+      "read": {
+        "reversible": true,
+        "outward": false,
+        "gloss": "load something without changing it"
+      },
+      "inspect": {
+        "reversible": true,
+        "outward": false,
+        "gloss": "look at state to decide what follows"
+      },
+      "search": {
+        "reversible": true,
+        "outward": false,
+        "gloss": "look for something whose location is unknown"
+      },
+      "measure": {
+        "reversible": true,
+        "outward": false,
+        "gloss": "take a reading and record the number"
+      },
+      "test": {
+        "reversible": true,
+        "outward": false,
+        "gloss": "run checks that can fail without changing anything"
+      },
+      "verify": {
+        "reversible": true,
+        "outward": false,
+        "gloss": "confirm a claim against the artifact, not the source"
+      },
+      "gate": {
+        "reversible": true,
+        "outward": false,
+        "gloss": "refuse to continue unless a condition holds"
+      },
+      "plan": {
+        "reversible": true,
+        "outward": false,
+        "gloss": "decide the order of what follows"
+      },
+      "bind": {
+        "reversible": true,
+        "outward": false,
+        "gloss": "attach an implementation to a declared step"
+      },
+      "build": {
+        "reversible": true,
+        "outward": false,
+        "gloss": "produce an artifact from source"
+      },
+      "generate": {
+        "reversible": true,
+        "outward": false,
+        "gloss": "write a derived file from a source of truth"
+      },
+      "edit": {
+        "reversible": true,
+        "outward": false,
+        "gloss": "change a file that is under version control"
+      },
+      "bump": {
+        "reversible": true,
+        "outward": false,
+        "gloss": "raise a version so a change has a name"
+      },
+      "sync": {
+        "reversible": true,
+        "outward": false,
+        "gloss": "propagate a canonical file to its copies"
+      },
+      "commit": {
+        "reversible": true,
+        "outward": false,
+        "gloss": "record local changes in version history"
+      },
+      "delete": {
+        "reversible": false,
+        "outward": false,
+        "gloss": "remove something with no other copy"
+      },
+      "rewrite": {
+        "reversible": false,
+        "outward": false,
+        "gloss": "rewrite history or overwrite an original"
+      },
+      "migrate": {
+        "reversible": false,
+        "outward": false,
+        "gloss": "move data into a new shape, one way"
+      },
+      "publish": {
+        "reversible": false,
+        "outward": true,
+        "gloss": "make something available to others, permanently"
+      },
+      "deploy": {
+        "reversible": false,
+        "outward": true,
+        "gloss": "put a build in front of users"
+      },
+      "send": {
+        "reversible": false,
+        "outward": true,
+        "gloss": "deliver a message to a person or service"
+      },
+      "upload": {
+        "reversible": false,
+        "outward": true,
+        "gloss": "transfer to a service that keeps it"
+      },
+      "push": {
+        "reversible": false,
+        "outward": true,
+        "gloss": "update a shared remote others read from"
+      },
+      "purchase": {
+        "reversible": false,
+        "outward": true,
+        "gloss": "spend money"
+      }
+    }
   }
 }

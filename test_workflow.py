@@ -171,5 +171,63 @@ try:
 except ValueError:
     check('duplicate step names are refused', True)
 
+# ── 14 · the dictionary linter ─────────────────────────────────────────────────────────
+# The case that matters is under-declaration: a step whose verb is normally irreversible
+# but which is not marked so. At run time the Operator waves it through without asking
+# anyone, which is the failure mode with no second chance. This is the exact bug lint()
+# found in phronesis's own deploy method on its first run against something real.
+w = Workflow(goal='ship the site')
+w.step('deploy', goal='put the build in front of users')      # NOT declared irreversible
+found = w.lint()
+under = [f for f in found if f['finding'] == 'under-declared']
+# TWO findings, one per axis: deploy is both irreversible and outward, and each is
+# separately wrong. Collapsing them into one would hide which half the author missed.
+check('lint catches an undeclared irreversible verb', len(under) == 2)
+check('  and names the verb', all(f['verb'] == 'deploy' for f in under))
+check('  reporting each axis separately',
+      any('irreversible' in f['note'] for f in under)
+      and any('leaves this machine' in f['note'] for f in under))
+
+# Declared correctly, it goes quiet.
+w = Workflow(goal='ship the site')
+w.step('deploy', goal='put the build in front of users', irreversible=True, outward=True)
+check('a correctly declared step is not flagged',
+      not [f for f in w.lint() if f['finding'] == 'under-declared'])
+
+# Over-declaration is reported but is not a fault — it only asks more often.
+w = Workflow(goal='ship the site')
+w.step('test', goal='the suite passes', irreversible=True)
+over = [f for f in w.lint() if f['finding'] == 'over-declared']
+check('over-declaration is reported, not silent', len(over) == 1)
+
+# A verb outside the vocabulary: not an error, but it makes methods incomparable.
+w = Workflow(goal='ship the site')
+w.step('frobnicate', goal='do the unnameable thing')
+check('an off-vocabulary verb is reported',
+      [f['finding'] for f in w.lint()] == ['unknown-verb'])
+
+# A goal that restates the name cannot be scored against anything.
+w = Workflow(goal='ship the site')
+w.step('build', goal='build')
+check('a goal restating its name is flagged',
+      any(f['finding'] == 'goal-restates-name' for f in w.lint()))
+
+# Verb-first naming: the verb carries the risk, so it must be extractable.
+w = Workflow(goal='ship the release')
+w.step('upload-pypi', goal='send the wheel to PyPI', irreversible=True, outward=True)
+check('a verb-first compound name resolves its verb',
+      not [f for f in w.lint() if f['finding'] == 'unknown-verb'])
+w = Workflow(goal='ship the release')
+w.step('pypi-upload', goal='send the wheel to PyPI', irreversible=True, outward=True)
+check('  and a verb-last one does not — which is why naming is verb-first',
+      [f['finding'] for f in w.lint()] == ['unknown-verb'])
+
+# The linter advises; it never blocks. A method with findings still stores and runs.
+w = Workflow(goal='ship the site')
+w.step('frobnicate', lambda c: {'progress': 'advancing', 'distance': 1},
+       goal='do the unnameable thing')
+check('a method with findings still runs — lint advises, never overrides',
+      w.run()['completed'] is True and len(w.lint()) == 1)
+
 print()
 raise SystemExit(0 if ok else 1)

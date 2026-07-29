@@ -1,5 +1,38 @@
 # Changelog
 
+## 0.16.0 — 2026-07-29
+
+**An agent-native dictionary, and `Workflow.lint()` that uses it.** Grammar 1.10.0 adds a
+`dictionary` section: 18 **terms** fixing the nouns, and 24 **step verbs** fixing the verbs.
+
+Terms exist because this vocabulary has already drifted inside one codebase — `tandem`
+became `link`, `laserbrain.md` became `laserfield.md`, and grammar 1.6.0 meant two different
+documents for a day. A word with no written definition means whatever the last person
+assumed.
+
+Step verbs do more work. A stored method is only worth vending if two people writing the
+same method produce something alignable; if one names a step `verify-artifact` and another
+`check-wheel`, nothing can tell they are the same step. Each verb also carries its DEFAULT
+position on the operator's two axes, which is the same taxonomy `operator_patterns` applies
+to shell strings — one classification, two surfaces: the operator applies it to what is
+about to run, the dictionary to what is being designed.
+
+- **`Workflow.lint()`** reports `under-declared` (the verb is normally irreversible or
+  outward and the step is not marked so — at run time the Operator would wave it through),
+  `over-declared` (stricter than the default; harmless, reported so the disagreement is
+  visible), `unknown-verb`, and `goal-restates-name` (a goal that repeats its name gives the
+  harness nothing to score against).
+- **Advisory, never blocking.** Only the author knows what a step actually does, so a linter
+  that refused to store a method would be substituting a default for a fact.
+- **Step names are verb-first**, because the verb carries the classification. `upload-pypi`
+  resolves; `pypi-upload` does not, and that is tested.
+
+It earned itself immediately. On its first run against phronesis's own three stored methods
+it caught a real mis-declaration — `deploy` written `irreversible=False`, when putting a
+build in front of users cannot be un-shown — plus six step names outside the vocabulary.
+None of those six needed a new dictionary entry; every one was a plural, a synonym, or a
+noun where a verb belonged.
+
 ## 0.15.0 — 2026-07-29
 
 **`Workflow.step()` no longer demands a callable.** Found by authoring the first real
