@@ -454,17 +454,27 @@ class Workflow:
         # admits. A method can satisfy every ordering rule and still have a shape nothing
         # else has — which is worth saying, because an unusual shape is either a new kind
         # of work or a mistake, and the author is the only one who can tell which.
-        known = set((spec.get('shape_language') or {}).get('shapes') or [])
-        if known and seq:
+        # Matched against the PATTERN, not against a list of shapes.
+        #
+        # The language is infinite — `cycle+` and `act_block*` are unbounded — so any
+        # enumeration is a sample, and testing membership against a sample rejects
+        # legitimate methods for being long. It did: a four-cycle method was flagged with
+        # nothing wrong with it, purely because the enumeration stopped at three.
+        #
+        # The language is REGULAR, so it has a finite description and membership is
+        # decidable at any length. That is the whole reason "every possible workflow" is
+        # answerable rather than merely sampled.
+        lang = (spec.get('shape_language') or {})
+        pattern = lang.get('pattern')
+        if pattern and seq:
             shape = []
             for _, p in seq:
                 if not shape or shape[-1] != p:
                     shape.append(p)
-            if ' '.join(shape) not in known:
+            if not re.match(pattern, ' '.join(shape)):
                 out.append({'step': seq[0][0], 'finding': 'shape-unknown', 'verb': None,
-                            'note': f'the shape {" → ".join(shape)} is not one the language '
-                                    'generates — either a new kind of work, or a step in '
-                                    'the wrong place'})
+                            'note': f'the shape {" → ".join(shape)} is not in the language — '
+                                    'either a new kind of work, or a step in the wrong place'})
 
         if 'change' in order and 'record' not in order:
             out.append({'step': next(n for n, p in seq if p == 'change'),

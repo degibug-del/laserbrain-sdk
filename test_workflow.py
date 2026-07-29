@@ -356,24 +356,28 @@ check('the shape rule is quiet on every shipped method',
            if f['finding'] == 'shape-unknown'])
 
 # It must be able to fire, and fire ALONE — otherwise it is just restating another rule.
-w = Workflow(goal='four cycles, all of them legitimate')
-for i in range(4):
-    w.step(f'edit-{i}', goal=f'make change number {i}')
-    w.step(f'verify-{i}', goal=f'check change number {i}')
-w.step('commit', goal='record all of it')
+# A reconcile that gets RECORDED: no production generates that tail.
+w = Workflow(goal='a shape outside the language')
+w.step('build', goal='make the artifact')
+w.step('verify-artifact', goal='check the artifact')
+w.step('commit', goal='record the source')
+w.step('publish', goal='send it out', irreversible=True, outward=True)
+w.step('verify-published', goal='confirm it landed')
+w.step('edit', goal='change something afterwards')
+w.step('commit-again', goal='record that too')
 found = [f['finding'] for f in w.lint()]
 check('an out-of-language shape is caught', 'shape-unknown' in found)
-check('  and caught by that rule alone', found == ['shape-unknown'])
 
-# The bound is a limitation, not a claim: three cycles is inside, four is not, and the
-# difference is the enumeration bound rather than anything wrong with the method.
-w3 = Workflow(goal='three cycles')
-for i in range(3):
-    w3.step(f'edit-{i}', goal=f'make change number {i}')
-    w3.step(f'verify-{i}', goal=f'check change number {i}')
-w3.step('commit', goal='record all of it')
-check('  three cycles is inside the bound',
-      'shape-unknown' not in [f['finding'] for f in w3.lint()])
+# THE BOUND IS GONE. Membership is decided by a regular expression, not a sampled list, so
+# length is no longer a reason to reject. The enumeration stopped at three cycles and
+# flagged a four-cycle method with nothing whatever wrong with it.
+for _n in (4, 10):
+    w = Workflow(goal=f'{_n} cycles, all legitimate')
+    for i in range(_n):
+        w.step(f'edit-{i}', goal=f'make change number {i}')
+        w.step(f'verify-{i}', goal=f'check change number {i}')
+    w.step('commit', goal='record all of it')
+    check(f'  a {_n}-cycle method is accepted — the language is infinite', w.lint() == [])
 
 # The three structures the linear model could not express, each from a real method.
 def shape_ok(steps, goal='a method'):

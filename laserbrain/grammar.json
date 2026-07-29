@@ -1,5 +1,5 @@
 {
-  "laserbrain_grammar": "1.13.0",
+  "laserbrain_grammar": "1.14.0",
   "kind": "reasoning-state",
   "immutable": true,
   "fields": {
@@ -221,7 +221,7 @@
       "note": "Not a sixth layer. It lives inside laserbrain and is listed here because the reference/manager division is what makes its authority legible."
     }
   },
-  "content_hash": "7ede3e984bc26a1b",
+  "content_hash": "9185554724951ced",
   "content_hash_what": "sha256 of this FILE's own lines, excluding the three that carry the version and these hashes. Deliberately not a hash of re-serialised JSON: Python and JavaScript disagree about identical content \u2014 Python escapes non-ASCII by default and writes 1.0 where JavaScript writes 1 \u2014 so a cross-language content hash compares serialisers rather than content. Both attempts failed that way before this one. Bytes are bytes. Exists because grammar 1.6.0 came to mean two different documents on 2026-07-28: seven additions under one version, canonical and live both announcing 1.6.0 with different content, while sync-grammar --check compared the copies to each other and passed.",
   "operator_patterns": {
     "what": "Shell commands whose effect cannot be taken back. Used by Operator.classify() to ESCALATE a caller's declaration, never to relax it: a command matching one of these is treated as irreversible even if the caller said otherwise, and a command matching none is left exactly as the caller declared. That asymmetry is the whole point \u2014 a classifier that could talk the guard down would be a way around it.",
@@ -521,7 +521,7 @@
           "plus the pre-act change varying per act block \u2014 5 of 5 (a generator bug, not a grammar gap)",
           "plus the read-only production \u2014 13 of 13, including the shipped library"
         ],
-        "bounded_at": "cycles<=3, acts<=2, inquiry<=3. Not a claim that longer methods are invalid \u2014 a bound is needed to enumerate at all, and nothing observed has exceeded it.",
+        "bounded_at": "SUPERSEDED by `pattern`. The list is a sample generated at cycles<=3, acts<=2, inquiry<=3 and is kept for illustration only.",
         "count": 174,
         "shapes": [
           "change verify change verify change verify record",
@@ -700,7 +700,20 @@
           "verify record change act verify change act verify change"
         ],
         "advisory": "A shape outside the language is reported, never refused. It is either a new kind of work or a mistake, and only the author can tell which.",
-        "added": "2026-07-29"
+        "added": "2026-07-29",
+        "pattern": "^(?:(?:check(?: verify check)*(?: verify)?|verify(?: check verify)*(?: check)?)|(?:check )?(?:change )?verify(?: change verify)* record(?: (?:change )?act verify)*(?: change)?)$",
+        "pattern_what": "The whole language, as a regular expression over the phase alphabet with phases space-separated and adjacent repeats collapsed. THIS is authoritative; the `shapes` list below is a bounded sample kept as examples.",
+        "is_infinite": "cycle+ and act_block* are unbounded, so no enumeration can be complete \u2014 a list of shapes is always a sample. The language is REGULAR, so it has a finite description and membership is decidable at any length. That is what makes \"map all possible workflows\" answerable at all.",
+        "bound_removed": "Until 1.13.0 membership was tested against an enumeration bounded at cycles<=3, acts<=2, which rejected legitimate methods for being long \u2014 a four-cycle method was flagged with nothing wrong with it. The pattern has no bound and accepts all 174 previously enumerated shapes, all 13 known methods, and the 4-cycle, 10-cycle and 3-act cases the bound refused.",
+        "verified_rejects": {
+          "change verify record act verify change record": "a reconcile that gets recorded",
+          "change record": "record with nothing verified before it",
+          "change verify act verify": "act with no record before it",
+          "change verify record act": "act with no confirm after it",
+          "change verify": "changes something and records nothing",
+          "record": "record alone",
+          "act verify": "act with no record"
+        }
       }
     }
   }
