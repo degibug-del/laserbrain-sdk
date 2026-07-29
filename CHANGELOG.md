@@ -1,5 +1,44 @@
 # Changelog
 
+## 0.13.0 — 2026-07-28
+
+**`Workflow` and `Store`, which 0.12.0 was supposed to carry and did not.** The wheel was
+built before `workflow.py` existed and never rebuilt, so 0.12.0 went to PyPI with 53
+exports instead of 56 — `Operator` present, `Workflow`, `Step` and `Store` absent. PyPI
+versions cannot be reused, so the fix is a new number rather than a corrected upload.
+
+**The release check that let it through is now incapable of that failure.** Step 5 of the
+publish script existed *because* 0.10.0 shipped without `Nova`: install the wheel into a
+clean venv and import from site-packages rather than from the tree. It ran on 0.12.0 and
+passed — because it asserted a hand-written list of symbols (`Nova, Skill, Operator,
+Refused`), every one of which was present. A hardcoded list can never contain the thing you
+just added, so the check was stale in precisely the situation it exists for.
+
+It no longer names symbols. It reads `__all__` from the source tree and from the installed
+wheel and diffs them; anything exported but not shipped fails the release. Nothing to
+remember to update, and it would have caught this.
+
+- **`Workflow(goal=...)`** — an ordered process, grounded at the top and at every step.
+  `step(name, fn, goal=, irreversible=, outward=)`, then `run(operator=)`. Catches a step
+  that did something other than what the method declared it for: declared "build the
+  release wheel", reported "refactoring the parser", scored the second against the first.
+  A task runner cannot produce that reading, because it only ever knew whether the step
+  exited zero.
+- **`Store`** — put, vend, get, catalogue. What travels is the METHOD, not the code: a spec
+  carries the steps, the goal each is for, and which act on the world, and the consumer
+  binds their own implementations. The transferable part of a workflow was never the shell
+  commands. Nothing in a spec can execute, and an unbound step raises rather than passing
+  silently, so reading a vended workflow is safe in a way installing a package is not.
+- Irreversible steps route through `Operator`, so a deploy and a test run are not the same
+  kind of thing. A step declared irreversible with no operator is refused, not run.
+
+Three design errors the tests caught before release, each recorded in `workflow.py`:
+sharing one harness across a sequence grounds on step one and calls every honest later step
+goal-drift; comparing a step's wording to the workflow's cannot distinguish a legitimate
+step from a wandering one and no threshold rescues it; and halting on `verdict.drifting`
+misses a step reporting circling at Φ=0.82, because warn-then-interrupt verdicts need
+history to escalate and a fresh per-step harness has none.
+
 ## 0.12.0 — 2026-07-28
 
 **`Operator` — the sixth layer, as something nova can hold.** Named in grammar 1.8.0 the
