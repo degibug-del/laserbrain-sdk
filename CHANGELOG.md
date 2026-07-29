@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.22.0 — 2026-07-29
+
+**Ships grammar 1.16.0.** 0.21.0 carried 1.14.0, so a `pip install` got a grammar two
+versions behind the canonical one — missing the method space (1.15.0) and the directory of
+maps plus the `ground` disambiguation (1.16.0).
+
+Nothing was broken by it: both additions are documentation sections, and the `pattern` that
+`lint()` actually executes shipped correctly in 1.14.0. But the wheel and the canonical file
+disagreed, which is the exact condition `check-laserstore` exists to catch, and it fails the
+next site build.
+
+This is `stale-verify` — the rule added in 0.18.0 — committed by me for the third time in a
+day: a change landed after the artifact was built, so the artifact fell behind the source.
+The rule catches it in a *method*; nothing catches it in a habit. What the grammar now
+carries that the last published wheel did not:
+
+- **`dictionary.phases.method_space`** — a workflow is a shape plus a verb at each position,
+  so the method space is the shape language crossed with the verb assignments: 3,418,642
+  methods up to length 9, infinite overall. The shapes are closed; the vocabulary is not.
+- **`directory`** — every grammar, vocabulary and map in phronesis and where each lives.
+  Two of the seven were found by searching the disk rather than remembering them.
+- **`dictionary.terms.ground`** now names the collision: /research/dictionary defines
+  "Ground state" as a coherence optimum, this defines `ground` as a frozen reference point.
+  Same word, unrelated ideas, and neither knew about the other.
+
 ## 0.20.0 — 2026-07-29
 
 **The shape language, and `shape-unknown`.** Grammar 1.13.0 replaces a claim that was wrong.
