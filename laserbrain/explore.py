@@ -35,7 +35,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field as _f
 
-from . import norm
+from . import _G, norm
 
 
 @dataclass
@@ -70,13 +70,20 @@ def trailscore(goals) -> str | None:
 class Search:
     """A moving reference, measured. The counterpart to Harness."""
 
+    # From grammar.calibration.explore, with the literals as last-known-good fallbacks —
+    # the same pattern Harness uses. Written down there rather than here because three of
+    # these four share a value with a harness constant and only TWO share the meaning:
+    # revisit_min IS collision_min's idea across time, window IS stall_window's idea, and
+    # settled_max merely happens to equal self_report_min. The grammar says which is which
+    # so nobody unifies the third.
+    _E = (_G.get('calibration') or {}).get('explore') or {}
     # A ground abandoned in fewer steps than this was not worked, it was glanced at.
-    MIN_COMMITMENT = 2
+    MIN_COMMITMENT = int(_E.get('min_commitment', 2))
     # Overlap with an already-abandoned ground that counts as being back where you were.
-    REVISIT_MIN = 0.60
+    REVISIT_MIN = float(_E.get('revisit_min', 0.60))
     # Novelty below this means the search has stopped finding new territory.
-    SETTLED_MAX = 0.15
-    WINDOW = 4
+    SETTLED_MAX = float(_E.get('settled_max', 0.15))
+    WINDOW = int(_E.get('window', 4))
 
     def __init__(self):
         self.goals: list[str] = []
