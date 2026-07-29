@@ -1122,3 +1122,8 @@ __all__ += ['Nova', 'Skill']
 # deferred import so the bar on routing does not make load order load-bearing.
 from .operator import Operator, Act, Refused                      # noqa: E402
 __all__ += ['Operator', 'Act', 'Refused']
+
+# ── workflows · the ordered process, and the shelf it is kept on ──────────────
+# After operator: a step that acts goes through the gate, so this imports it.
+from .workflow import Workflow, Step, Store                       # noqa: E402
+__all__ += ['Workflow', 'Step', 'Store']
