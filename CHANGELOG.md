@@ -1,5 +1,40 @@
 # Changelog
 
+## 0.25.0 — 2026-07-29
+
+**`laserbrain mcp` — the harness as an MCP server, offline, from the pip package.**
+
+    pip install laserbrain
+    laserbrain mcp          # JSON-RPC on stdin/stdout
+
+Point any MCP client at that command and the agent has the harness. No key, no network, no
+account, nothing to sign up for.
+
+Until now `pip install laserbrain` gave a library and a CLI, and the only way to reach the
+instrument over MCP was the hosted Worker. The stdio server the author actually uses is a
+Node file living on one machine, distributed to nobody — so the way laserbrain is used by
+the person who wrote it was the one way a user could not use it. For a tool whose headline
+claim is that the check is local and needs no server, that was backwards.
+
+Most agents cannot `import laserbrain`. They speak MCP. This makes "free and offline" true
+for agents rather than only for Python programs.
+
+**No dependency.** MCP over stdio is JSON-RPC in newline-delimited JSON, which is `json`
+and `sys.stdin`. An SDK would have added a dependency to a package that has none, for a
+protocol that fits in one file. Six tools: `check_state`, `reset_task`, `get_history`,
+`similarity`, `laserscore`, `capabilities`.
+
+**It exposes only what works unplugged.** The field, Alice, the spectral grammar and the
+persisted self are real capabilities and every one is a call to a server. Offering them
+here would produce an MCP server that fails the moment it is used as advertised. They stay
+on the hosted Worker, which is honest about being a server, and `capabilities` says so in
+as many words rather than leaving a user to find out by failure.
+
+`test_mcp_server.py` drives it as a real client does — through a subprocess, over pipes,
+because an in-process test cannot catch a stray print corrupting the stream. Fourteen
+cases, including the one that matters: with `socket.socket` disabled outright it still
+answers, and the verdict is real rather than a stub.
+
 ## 0.24.0 — 2026-07-29
 
 **`laserbrain key` — one command from install to a working key.**

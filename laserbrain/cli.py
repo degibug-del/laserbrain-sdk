@@ -5,6 +5,7 @@ laserbrain command line — the smart recursion harness, in your terminal.
     laserbrain check --goal "…" [--progress advancing] [--distance 6] [--against "…"]
     laserbrain verify run.json           verify an exported audit chain (tamper-evident)
     laserbrain key                       get a free key for the hosted half
+    laserbrain mcp                       run as an MCP server — offline, no key
     laserbrain version
 
 Dep-free (stdlib only), like the rest of the package.
@@ -227,6 +228,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     k = sub.add_parser("key", help="get a free API key, and see what it allows")
     k.add_argument("--new", action="store_true",
                    help="fetch another key even if one is already stored")
+    sub.add_parser("mcp", help="run as an MCP server on stdin/stdout (offline, no key)")
     sub.add_parser("version", help="print the version")
 
     args = p.parse_args(argv)
@@ -241,6 +243,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _verify(args)
     if args.cmd == "key":
         return _key(args)
+    if args.cmd == "mcp":
+        # Nothing may print to stdout but JSON-RPC — an MCP client parses it.
+        from .mcp import serve
+        return serve()
     if args.cmd == "version":
         print(f"laserbrain {__version__}")
         return 0
