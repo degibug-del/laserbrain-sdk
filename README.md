@@ -238,6 +238,58 @@ Team("adversarial-deliberation", goal="…").run(agent)
 # presets: deep-search · iterative-refinement · adversarial-deliberation
 ```
 
+## The store — a process, written once, run by whoever binds it
+
+A **workflow** is an ordered process, grounded at the top and at every step — steps
+carry a name and a goal, not code, so a stored workflow is data anyone can read
+without running anything.
+
+```python
+from laserbrain import Workflow, Operator
+
+w = Workflow(goal="ship the release")
+w.step("test",    run_tests, goal="the suite passes")
+w.step("build",   build_whl, goal="a wheel exists")
+w.step("publish", upload,    goal="it is on PyPI", irreversible=True, outward=True)
+
+out = w.run(operator=Operator(authorize=lambda a: True))
+w.wandered()   # steps that did something other than what they were declared for
+```
+
+Each step gets its **own** harness, grounded on what it was *declared* for, not the
+workflow's goal — a legitimate step never reads as drift just for being worded
+differently than the goal it serves. An irreversible or outward step with no
+operator is refused, not run.
+
+**The store vends both what it holds and what the grammar already defines.**
+`pip install laserbrain` ships 8 task workflows (`audit`, `build-and-ship`,
+`diagnose-and-fix`, `fix`, `full-release`, `investigate`, `promote`, `ship-built`)
+and, through the same object, the three recursion-team presets above — one door,
+two shapes behind it, because a workflow runs once in order and a preset cycles
+until it converges, and a name like `explorer` cannot honestly be squeezed into the
+first shape.
+
+```python
+from laserbrain import Store
+
+s = Store()                                    # ~/.laserbrain/workflows/, local shadows shipped
+s.list()                                        # every task workflow available
+s.find("fix a broken build")                    # ranked by what it's FOR, not by name
+w = s.get("build-and-ship")                     # rebuilt, every step unbound
+w.bind("build", my_build).bind("deploy", my_deploy)
+
+s.list_teams()                                  # ['adversarial-deliberation', 'deep-search', 'iterative-refinement']
+s.find_team("debate toward a decision")         # same ranked matching, against presets
+team = s.get_team("deep-search", goal="…")      # Team("deep-search", goal) — the same door
+
+s.put(w, "my-release")                          # store your own; local shadows shipped
+```
+
+Nothing vended can execute. A stored workflow's steps come back unbound and raise if
+run without a binding; a preset's roles carry a recurse depth and a return policy,
+never code. Reading a method from someone you don't know is safe in a way that
+installing their package is not.
+
 ## Oversight, provenance, continuity
 
 **Human-in-the-loop.** A self-correcting return usually takes. When it doesn't —

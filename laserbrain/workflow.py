@@ -683,3 +683,82 @@ class Store:
                         'irreversible': [x['name'] for x in steps if x.get('irreversible')],
                         'outward': [x['name'] for x in steps if x.get('outward')]})
         return out
+
+    # ── team presets — the other thing the store vends ──────────────────────────────────
+    #
+    # A Workflow is one agent's process, in order, toward one goal. A preset is different in
+    # kind: several agents in a styled rotation, no fixed finish, escalating a `return` when
+    # they agree without moving. Forcing it into the same spec as a Workflow was tried and
+    # reverted — role names like `explorer` and `synthesizer` fail lint()'s verb dictionary
+    # (built for build/verify/deploy-shaped work), and even where a name could be coerced to
+    # pass, `Workflow.run()` executes once through in order while a team cycles until it
+    # converges or is returned — the same container would vend something that lints clean
+    # and lies about what happens when it runs. So presets get their own four methods here,
+    # named to match get()/vend()/find()/catalogue() — one door, two shapes behind it.
+    #
+    # PRESETS (this package's root) is the canonical source — synced ONE-WAY into
+    # grammar.json's modulation.presets for the protocol document, never the reverse. These
+    # methods read PRESETS directly, live, on every call: duplicating the roles into a
+    # second file here would recreate the exact failure this project spent 2026-07-30 fixing
+    # three times over — a hand-written copy of something with a canonical source, silently
+    # falling behind it. Only `task` — descriptive text PRESETS itself does not carry — comes
+    # from the grammar's copy, and only to make find_team() searchable; it is prose, not the
+    # executable roles, so reading it from the documentation copy risks nothing load-bearing.
+
+    def list_teams(self) -> list[str]:
+        """Every recursion-team preset the package ships."""
+        from . import PRESETS
+        return sorted(PRESETS)
+
+    def vend_team(self, name: str) -> dict:
+        """A preset as data: its task, if the grammar documents one, and its roles — each
+        carrying a recurse depth and, where it has one, a return policy. Nothing here can
+        execute; roles are not code, the same guarantee vend() makes for workflows."""
+        from . import PRESETS, _G
+        if name not in PRESETS:
+            raise KeyError(f'no team preset {name!r} — have {self.list_teams()}')
+        task = next((p.get('task') for p in
+                     (_G.get('modulation') or {}).get('presets') or []
+                     if p.get('name') == name), None)
+        return {'name': name, 'task': task, 'roles': PRESETS[name]}
+
+    def get_team(self, name: str, goal: str, key=None, api=None, calibration=None) -> 'Team':
+        """Vend a preset, built and ready to run — the same door as get() for workflows.
+        `Team(name, goal)` already does exactly this; this only names it to match."""
+        from . import Team
+        kw = {'key': key, 'calibration': calibration}
+        if api is not None:
+            kw['api'] = api
+        return Team(name, goal, **kw)
+
+    def find_team(self, task: str, top: int = 3) -> list[dict]:
+        """Given a task in words, which team presets are for it — the same normaliser and
+        scoring find() uses for workflows, matched against each preset's task and role
+        names instead of a workflow's steps."""
+        from . import norm
+        want = norm(task)
+        if not want:
+            return []
+        rows = []
+        for name in self.list_teams():
+            spec = self.vend_team(name)
+            task_words = norm(spec.get('task') or '')
+            role_words = set()
+            for r in spec['roles']:
+                role_words |= norm(r.get('role') or '')
+
+            def jac(a, b):
+                return len(a & b) / len(a | b) if (a or b) else 0.0
+
+            score = 0.7 * jac(want, task_words) + 0.3 * jac(want, role_words)
+            if score > 0:
+                rows.append({'name': name, 'score': round(score, 3), 'task': spec.get('task'),
+                             'roles': [r['role'] for r in spec['roles']]})
+        rows.sort(key=lambda r: -r['score'])
+        return rows[:top]
+
+    def catalogue_teams(self) -> list[dict]:
+        """What team presets are on the shelf, with enough to choose by."""
+        return [{'name': n, 'task': self.vend_team(n).get('task'),
+                 'roles': [r['role'] for r in self.vend_team(n)['roles']]}
+                for n in self.list_teams()]

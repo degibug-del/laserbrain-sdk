@@ -403,5 +403,45 @@ check('two acts are in the language (repo-surgery)', shape_ok([
     ('verify-history', 'commits survived'), ('push', 'send it', True, True),
     ('verify-remote', 'the remote matches')]))
 
+# ── 18 · team presets — the other thing the store vends ───────────────────────────────
+# A Workflow is one agent's process; a preset is several agents in a rotation, no fixed
+# finish. Forcing it through the same spec failed lint()'s verb dictionary and, even where
+# a name could be coerced past that, misrepresented a cycling dialogue as a one-pass
+# pipeline — so it gets its own four methods instead, proven here the same way §16 proves
+# the workflow ones: real names, a real task-to-preset match, and the failure cases.
+from laserbrain import Store as _TeamStore, Team as _Team, PRESETS as _PRESETS   # noqa: E402
+
+ts = _TeamStore()
+check('every PRESETS entry is listed', ts.list_teams() == sorted(_PRESETS))
+
+vt = ts.vend_team('deep-search')
+check('vend_team returns roles straight from PRESETS, not a copy',
+      vt['roles'] == _PRESETS['deep-search'])
+check(f"  and the task comes from the grammar, since PRESETS does not carry one — {vt['task']!r}",
+      vt['task'] == 'deep exploratory search or research')
+
+got = ts.get_team('deep-search', 'ship the sky billboard')
+check('get_team returns a working Team', isinstance(got, _Team) and got.name == 'deep-search')
+check('  identical to constructing Team(name, goal) directly',
+      got.roles == _Team('deep-search', 'ship the sky billboard').roles)
+
+hits = ts.find_team('debate toward a resolved answer')
+check(f'a task finds the matching preset — {hits}',
+      bool(hits) and hits[0]['name'] == 'adversarial-deliberation')
+check('nonsense scores nothing', ts.find_team('xyzzy plugh frotz') == [])
+check('an empty task returns nothing', ts.find_team('') == [])
+
+cat = ts.catalogue_teams()
+check('catalogue_teams lists every preset with its roles',
+      {c['name'] for c in cat} == set(_PRESETS) and
+      all(c['roles'] == [r['role'] for r in _PRESETS[c['name']]] for c in cat))
+
+try:
+    ts.vend_team('not-a-real-preset')
+    check('an unknown preset raises', False)
+except KeyError as e:
+    check(f'an unknown preset raises, naming what does exist — {e}',
+          all(n in str(e) for n in _PRESETS))
+
 print()
 raise SystemExit(0 if ok else 1)
