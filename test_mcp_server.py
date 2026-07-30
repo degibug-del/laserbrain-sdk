@@ -89,6 +89,35 @@ out, _ = run([INIT,
 after = json.loads(out[3]['result']['content'][0]['text'])
 check('after reset the next check is a NEW ground', after['reason'] == 'grounded', after['reason'])
 
+# ── the store, over the wire — the same gap this whole file exists to close, one layer
+# up: Store shipped in 0.29.0 with no MCP tool, so the most common way an agent reaches
+# this package still could not discover a single prefabricated workflow or team preset ──
+out, _ = run([INIT,
+              call('store_list', {}, 2),
+              call('store_list', {'kind': 'team'}, 3),
+              call('store_find', {'task': 'debate toward a resolved answer', 'kind': 'team'}, 4),
+              call('store_vend', {'name': 'build-and-ship'}, 5),
+              call('store_vend', {'name': 'deep-search', 'kind': 'team'}, 6),
+              call('store_vend', {'name': 'not-a-real-name'}, 7)])
+wf = json.loads(out[1]['result']['content'][0]['text'])
+check('store_list defaults to workflows and includes a shipped one',
+      'build-and-ship' in wf['names'], wf['names'])
+tm = json.loads(out[2]['result']['content'][0]['text'])
+check('store_list(kind=team) lists the three presets',
+      tm['names'] == ['adversarial-deliberation', 'deep-search', 'iterative-refinement'])
+found = json.loads(out[3]['result']['content'][0]['text'])
+check('store_find(kind=team) matches on task, not name',
+      found['matches'] and found['matches'][0]['name'] == 'adversarial-deliberation',
+      found['matches'])
+spec = json.loads(out[4]['result']['content'][0]['text'])
+check('store_vend returns an unbound workflow spec',
+      spec['kind'] == 'workflow' and bool(spec['spec']['steps']), spec)
+tspec = json.loads(out[5]['result']['content'][0]['text'])
+check('store_vend(kind=team) returns roles, not steps',
+      tspec['kind'] == 'team' and tspec['spec']['roles'][0]['role'] == 'explorer', tspec)
+err = json.loads(out[6]['result']['content'][0]['text'])
+check('an unknown name is a clean error, not a dead call', 'error' in err, err)
+
 # ── stdout carries JSON-RPC and nothing else ─────────────────────────────────────────
 _, r = run([INIT, call('capabilities', {}, 2)])
 bad = [l for l in r.stdout.splitlines() if l.strip() and not l.lstrip().startswith('{')]

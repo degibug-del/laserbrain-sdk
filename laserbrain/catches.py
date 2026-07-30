@@ -1,7 +1,12 @@
 """Catch signatures — drift in how an agent VERIFIES, not in what it says it is doing.
 
-PROTOTYPE, 2026-07-27. Not exported from __init__ and not published; the eight modes
-are the product, this is a second axis being tried out.
+Written 2026-07-27 as a prototype, saying so here: "not exported from __init__, not
+published." Fixed 2026-07-28 — everything below is in __all__ now, on both axes, after
+an audit found the opposite failure this docstring used to warn about elsewhere: a set of
+six split down the middle, three reachable only as `laserbrain.catches.unfalsified`. No
+test failed on that split; the package still imported, every name still resolved, and the
+only symptom was that three of them were invisible. This paragraph is the fix for the
+same thing happening to this file's own claim about itself.
 
 The eight modes read the state an agent spells for itself. That is self-report, and
 laserbrain's own documentation says self-report is the weak signal — an agent that is

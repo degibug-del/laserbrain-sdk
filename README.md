@@ -31,10 +31,12 @@ Point any MCP client at it:
 ```
 
 That's the whole installation. Your agent now has `check_state`, `modulate`,
-`get_history`, `reset_task`, `similarity`, `laserscore` and `capabilities` — no
-dependencies, and it keeps working with the network unplugged. The tools that need a
-server aren't offered here; `capabilities` says which and why, rather than letting you
-find out by failure.
+`get_history`, `reset_task`, `similarity`, `laserscore`, `capabilities`, and
+`store_list` / `store_find` / `store_vend` — the prefabricated workflows and
+recursion-team presets below, discoverable over the wire instead of only from
+Python. No dependencies, and it keeps working with the network unplugged. The tools
+that need a server aren't offered here; `capabilities` says which and why, rather
+than letting you find out by failure.
 
 See it work before writing anything:
 

@@ -39,7 +39,7 @@ import json
 import sys
 from typing import Any
 
-from . import PRESETS, Harness, Verdict, __version__, ground_score, laserscore, norm
+from . import PRESETS, Harness, Store, Verdict, __version__, ground_score, laserscore, norm
 from . import _G
 
 PROTOCOL = '2024-11-05'
@@ -161,6 +161,46 @@ def _modulate(args: dict) -> dict:
     return {**out, 'modulation': mod}
 
 
+# The store is 100% local — shipped task-workflows plus whatever ~/.laserbrain/workflows/
+# holds, and the recursion-team presets — so it belongs here on the same principle as
+# check_state: it works with the network unplugged. It shipped in 0.29.0 (Store) and today
+# (team vending) with no MCP surface at all, which meant the most common way an agent
+# reaches this package could not discover it — the exact gap `mcp.py`'s own docstring
+# names as the reason this file exists in the first place, reproduced one layer up.
+_STORE = Store()
+
+
+def _store_list(args: dict) -> dict:
+    kind = str(args.get('kind', 'workflow'))
+    if kind == 'team':
+        return {'kind': 'team', 'names': _STORE.list_teams()}
+    return {'kind': 'workflow', 'names': _STORE.list()}
+
+
+def _store_find(args: dict) -> dict:
+    task = str(args.get('task', '')).strip()
+    if not task:
+        return {'error': 'store_find needs a task, in words, to match against'}
+    kind = str(args.get('kind', 'workflow'))
+    top = int(args.get('top', 3))
+    if kind == 'team':
+        return {'kind': 'team', 'matches': _STORE.find_team(task, top=top)}
+    return {'kind': 'workflow', 'matches': _STORE.find(task, top=top)}
+
+
+def _store_vend(args: dict) -> dict:
+    name = str(args.get('name', '')).strip()
+    if not name:
+        return {'error': 'store_vend needs a name — see store_list or store_find'}
+    kind = str(args.get('kind', 'workflow'))
+    try:
+        if kind == 'team':
+            return {'kind': 'team', 'spec': _STORE.vend_team(name)}
+        return {'kind': 'workflow', 'spec': _STORE.vend(name)}
+    except KeyError as e:
+        return {'error': str(e)}
+
+
 def _capabilities(args: dict) -> dict:
     return {
         'version': __version__,
@@ -251,6 +291,43 @@ TOOLS: dict[str, dict[str, Any]] = {
         'fn': _capabilities,
         'description': 'What this server can do offline, and what needs the hosted one.',
         'schema': {'type': 'object', 'properties': {}},
+    },
+    'store_list': {
+        'fn': _store_list,
+        'description': (
+            'Every prefabricated method on the shelf: 8 task workflows shipped with the '
+            'package plus anything saved locally, or the 3 recursion-team presets. Names '
+            'only — pass one to store_vend to see what it actually does.'),
+        'schema': {'type': 'object',
+                   'properties': {'kind': {'type': 'string', 'enum': ['workflow', 'team'],
+                                            'description': 'Default workflow.'}}},
+    },
+    'store_find': {
+        'fn': _store_find,
+        'description': (
+            'Which stored method is FOR a task, in your own words — ranked by what it does, '
+            'not by name, so you do not need to already know it exists.'),
+        'schema': {'type': 'object',
+                   'properties': {
+                       'task': {'type': 'string', 'description': 'What you need done, in words.'},
+                       'kind': {'type': 'string', 'enum': ['workflow', 'team']},
+                       'top': {'type': 'number', 'description': 'Default 3.'},
+                   },
+                   'required': ['task']},
+    },
+    'store_vend': {
+        'fn': _store_vend,
+        'description': (
+            "The raw spec for one stored method — its goal or task, and its steps or roles. "
+            "Data only; nothing here can execute. A workflow comes back with unbound steps "
+            "(bind them in Python to run it); a team preset comes back with each role's "
+            "recurse depth and return policy."),
+        'schema': {'type': 'object',
+                   'properties': {
+                       'name': {'type': 'string'},
+                       'kind': {'type': 'string', 'enum': ['workflow', 'team']},
+                   },
+                   'required': ['name']},
     },
 }
 
