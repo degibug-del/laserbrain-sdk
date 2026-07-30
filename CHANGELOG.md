@@ -1,5 +1,52 @@
 # Changelog
 
+## 0.30.0 — 2026-07-30
+
+**The store reaches every surface now, and the gate that's supposed to prove the tests
+watch anything was mostly checking dead code.**
+
+`./mutate.sh` mutates the calibration constants and asks whether the suite notices. It
+did not, for four of six: a 2026-07-28 refactor moved the real values into
+`grammar.json`, and the Python literal the script was editing had become a fallback for
+a key that's never missing — dead code, unreachable by construction. A hardcoded
+11-file `SUITE` had also quietly stopped covering 19 of the 30 test files in the repo,
+`test_operator.py` and `test_mcp_server.py` included. Fixed both, plus a third bug the
+fix itself exposed: `echo_min`'s mutation passed standalone and survived inside the
+tight restore-sed-run loop, because the loop landed inside one filesystem mtime tick
+and Python reused a stale `__pycache__` bytecode from before the edit. All six
+mutations are now caught in both normal and `--deep` mode, for real.
+
+`test_behaviour.py`'s echo-floor case had the same shape of problem one level up: every
+other section reaches the true shipped default through `cal=None`; this one only ever
+constructed `Calibration(echo_min=0.25)` with a literal the test chose, so a moved
+default would never have been noticed behaviourally. Added the missing case.
+
+`uvx laserbrain mcp` resolves to the newest release on PyPI regardless of what a
+registry entry's own `version` field claims — proved live, since `uvx laserbrain mcp`
+and `uvx --from laserbrain==0.28.0 laserbrain mcp` already disagree now that 0.29.0
+exists. `server.json` now pins the exact version with a `runtimeArguments --from`, so
+this entry keeps meaning what it says once something newer ships. Registry entries are
+immutable, so this takes effect starting with this release, not retroactively.
+
+**The store vends recursion-team presets now, not just task workflows** —
+`list_teams` / `vend_team` / `get_team` / `find_team` / `catalogue_teams`, one door,
+two shapes, because a workflow runs its steps once in order and a preset cycles until
+it converges, and role names like `explorer` fail the workflow spec's own verb
+dictionary honestly rather than being coerced into it.
+
+**The store reaches Python, MCP, and the terminal now — before this release it was
+Python-only.** `store_list` / `store_find` / `store_vend` over MCP, `laserbrain store
+[list|find|vend]` on the command line. Most agents reach this package over MCP, not
+`import laserbrain`, which is the same reasoning `mcp.py` already gives for existing at
+all; the store shipping with no MCP or CLI surface reproduced that gap one layer up.
+
+Two more workflows — `new-repo`, `repo-surgery` — promoted from a local-only shelf to
+shipped, after checking each of six candidates for whether it's an actually generic
+pattern or tied to this project's own tooling. Four stayed local (`deploy`,
+`grammar-bump`, `release`, `research-note`) rather than being genericised into
+something weaker for marginal benefit to a stranger who has to rewrite every step's
+binding regardless. 10 workflows ship now, up from 8.
+
 ## 0.29.0 — 2026-07-29
 
 **Claim detection, not cure.** No code changed. This release exists because the page every
