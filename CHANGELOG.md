@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.27.0 — 2026-07-29
+
+**`laserbrain mcp` gains `modulate`, and grammar 1.19.0 is what made it possible.**
+
+    modulate(goal=…, progress='stuck', distance=5, team='deep-search', role='explorer')
+    # {"reason": "self-report:stuck", "modulation": {"return": false,
+    #  "basis": "explorer recurses deep"}}
+
+The policy table — the eight drift modes, the three recurse depths, the recursion-team
+presets — lived only in the Worker's TypeScript. That is why modulation could be served
+there and nowhere else: adding it to a local server meant copying the table, a fourth copy
+of a list this project has already watched drift twice. `grammar.modulation` is canonical
+now and three implementations read it, so the offline server answers exactly what the
+hosted one does: `explorer(deep)` tolerates `self-report:stuck`, `checker(tight)` returns
+on it.
+
+**WHY THIS IS A VERSION AND NOT PART OF 0.26.0.** It was meant to be. The 0.26.0 wheel was
+built at 19:06, `mcp.py` changed at 19:10 and `grammar.json` at 19:13, and the upload went
+out before the rebuild — so the published 0.26.0 carries the Operator joins and ships
+grammar 1.18.0 with no `modulate`. PyPI versions cannot be overwritten, and a changelog
+entry describing an artifact nobody can download is worse than a second version, so the
+claim moved here where it is true.
+
+That is the 0.12.0 failure a third time: a wheel built before the source finished, where
+the tree is right and reading the tree proves nothing. It was caught by installing the
+PUBLISHED package and comparing byte sizes — 126,052 on PyPI against 128,895 locally.
+
 ## 0.26.0 — 2026-07-29
 
 **The sixth join: the hands consult the instrument before doing something final.**
@@ -57,13 +84,6 @@ allow that skipped both looks identical to an allow that passed both.
 
 Entirely opt-in: `Operator()` without a harness or key behaves exactly as before.
 
-**`laserbrain mcp` also gains `modulate`**, and grammar **1.19.0** is why it could. The
-policy table — the eight drift modes, the three recurse depths, the recursion-team presets
-— lived only in the Worker's TypeScript, so modulation could be served there and nowhere
-else. Adding it locally meant copying the table, a fourth copy of a list this project has
-already watched drift twice. `grammar.modulation` is canonical now and three
-implementations read it, so the offline server answers exactly what the hosted one does:
-`explorer(deep)` tolerates `self-report:stuck`, `checker(tight)` returns on it.
 
 `test_operator_harness.py`, twelve cases, including the ordering claim and the boring one
 that matters most — that a grounded agent can still act.
