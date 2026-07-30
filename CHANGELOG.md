@@ -1,5 +1,37 @@
 # Changelog
 
+## 0.28.0 — 2026-07-29
+
+**The README described a product two generations old, and it is the PyPI page.**
+
+It mentioned `laserbrain mcp` zero times, `modulate` zero times and `Operator` zero times.
+The single biggest thing this package does — that `pip install laserbrain` gives any agent
+the harness over MCP, offline and free — was stated nowhere a stranger would encounter it.
+No code changed in this release; what changed is that the page now says what the code has
+done since 0.25.0.
+
+The MCP path is second on the page now, after the theorem and before the Python API,
+because most agents cannot `import laserbrain`. Four lines of JSON and an agent has a fixed
+reference. Two new sections cover what previously existed only in this changelog:
+modulation (same verdict, opposite action by role) and the hands (a drifting agent cannot do
+what it cannot undo).
+
+**A pricing claim was corrected because today made it false.** The page said *you pay to see
+your agents drift* and listed retained history as the paid half. The SDK writes every
+session to disk and keeps it forever, so that was charging for something the client already
+has. What a key buys is a PLACE: awake while you sleep, readable by a colleague's laptop,
+able to notice a second agent deploying the same thing.
+
+**And an `mcp-name:` marker, for the official MCP registry.** The registry reads it off the
+PyPI description to verify that whoever publishes the registry entry also controls the
+package, which is why it has to ship in a release before the listing can be created.
+`server.json` accompanies it in the repo.
+
+Every example on the page was verified against the PUBLISHED package rather than the tree —
+the seven tool names, the modulation shape and its `basis` string, the operator refusal
+verbatim including Φ=0.53, and that an unknown team errors instead of silently going
+unstyled.
+
 ## 0.27.0 — 2026-07-29
 
 **`laserbrain mcp` gains `modulate`, and grammar 1.19.0 is what made it possible.**

@@ -393,3 +393,10 @@ keeps the answer as good is [an honest open question](https://phronesis.world/la
 this SDK gives you the detection and the return mechanism, and says plainly what each is.
 
 MIT · [phronesis.world/laserbrain](https://phronesis.world/laserbrain)
+
+---
+
+<!-- The MCP registry reads this line off the PyPI description to verify that whoever
+     publishes the registry entry also controls the package. It is an ownership proof,
+     not documentation, which is why it sits here rather than anywhere a reader looks. -->
+mcp-name: io.github.degibug-del/laserbrain

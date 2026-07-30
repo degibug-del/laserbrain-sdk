@@ -1,0 +1,13 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-07-09/server.schema.json",
+  "name": "io.github.degibug-del/laserbrain",
+  "description": "A fixed reference an AI agent checks against, so it can catch its own drift \u2014 which, watching only itself, it provably cannot. Runs locally and offline: no key, no account, no network.",
+  "version": "0.28.0",
+  "packages": [
+    {
+      "registry_type": "pypi",
+      "identifier": "laserbrain",
+      "version": "0.28.0"
+    }
+  ]
+}
