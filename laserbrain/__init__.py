@@ -25,7 +25,7 @@ import hashlib, json, re
 from pathlib import Path as _Path
 
 __all__ = ['Harness', 'Team', 'Verdict', 'PRESETS', 'norm', 'laserscore', 'verify_audit', 'ground_score', 'MAX_DEPTH']
-__version__ = '0.25.0'
+__version__ = '0.26.0'
 MAX_DEPTH = 50   # nesting deeper than this is a drift signal, not a decomposition
 API_DEFAULT = 'https://laserbrain-mcp.degibug.workers.dev'
 
@@ -672,6 +672,10 @@ class Harness:
         r = self._run
         return round(r.corroborated / r.checks, 3) if r.checks else 0.0
 
+    #: The most recent Verdict, or None if this harness has never been checked. None is
+    #: a meaningful value and must not be read as "fine": it means no reading was taken.
+    last = None
+
     def check(self, goal, progress='advancing', distance=5, tokens=None, overhead=False,
               inferred=False, parent_goal=None, user_turn=False) -> Verdict:
         v = self._run.step(goal, progress, distance, parent_goal, user_turn)
@@ -680,6 +684,12 @@ class Harness:
             # number and reported as the same measurement.
             v = Verdict(v.drifting, v.reason, v.phi, v.advice + ' [inferred: Φ is a lower bound]')
         self._record(goal, progress, distance, v)
+        # Held so something OTHER than the caller can read the reading. Added 2026-07-29
+        # for Operator(harness=…): the hands need to know whether the agent asking them to
+        # act is currently on its ground, and an operator cannot call check() itself —
+        # it has no goal, no progress and no distance, and inventing them would be the
+        # operator marking its own homework.
+        self.last = v
         if self.key:  # mirror to the API for retained history / alerts (best-effort)
             body = {'run_id': self.run_id, 'goal': goal, 'progress': progress, 'distance': distance}
             if tokens is not None:

@@ -1,5 +1,47 @@
 # Changelog
 
+## 0.26.0 — 2026-07-29
+
+**The sixth join: the hands consult the instrument before doing something final.**
+
+    hz = Harness('build the parser')
+    op = Operator(authorize=ask_me, harness=hz)
+
+    hz.check('write documentation instead', 'advancing', 4)   # drifted
+    op.act(deploy, kind='deploy', target='prod')
+    # Refused: the agent is off its ground (goal-drift, Φ=0.53) — return before
+    #          acting irreversibly.
+
+Until now the harness could say *return to your goal* and the agent was free to deploy
+anyway, because advice is advice. The one layer whose whole job is doing things to the
+world had never heard of a verdict: `operator.py` contained no reference to the harness,
+and the hosted Worker contains no operator at all. Detection reached policy in 0.25.0 and
+stopped there.
+
+**It reads `harness.last`; it does not call `check()`.** An operator has no goal, no
+progress and no distance to spell. Inventing them would be the operator marking its own
+homework — the exact failure a fixed reference exists to prevent. So `Harness` now retains
+its last `Verdict`, and the operator reads it.
+
+**The consult happens BEFORE the authorizer, and the ordering is the substance.** Asking a
+person to approve an irreversible act by an off-goal agent is precisely when a person
+rubber-stamps: the request looks reasonable in isolation, because every drifting step does.
+The drift is only visible against the ground. A test asserts the authorizer is never called
+while drifting.
+
+**No reading is not a good reading.** An operator wired to a harness nobody has checked
+knows nothing about the agent asking it to act, and spending "nothing" as "fine" is the
+failure this instrument is named after. It refuses, and says so.
+
+**Only for what cannot be taken back.** A drifting agent may still read a file. If drift
+blocked everything, the first thing anyone would do is unwire the harness — and an operator
+that refuses everything is not safe, it is broken.
+
+Entirely opt-in: `Operator()` without a harness behaves exactly as before.
+
+`test_operator_harness.py`, twelve cases, including the ordering claim and the boring one
+that matters most — that a grounded agent can still act.
+
 ## 0.25.0 — 2026-07-29
 
 **`laserbrain mcp` — the harness as an MCP server, offline, from the pip package.**

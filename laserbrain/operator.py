@@ -177,13 +177,28 @@ class Operator:
     #: reading gives it a basis for. Written into layers.operator.routing in grammar 1.8.0.
     routable = False
 
-    def __init__(self, authorize=None, name: str = 'operator'):
+    def __init__(self, authorize=None, name: str = 'operator', harness=None):
+        """`harness` wires the hands to the instrument. Optional, and off by default.
+
+        Give it a Harness and this operator will not take an irreversible or outward action
+        while that harness's last reading says the agent is drifting. That is the whole
+        sixth join: until now the harness could say "return to your goal" and an agent was
+        free to deploy anyway, because advice is advice. Here it becomes a refusal.
+
+        It reads `harness.last` rather than calling `check()` itself, and the distinction
+        matters: an operator has no goal, no progress and no distance to spell. Inventing
+        them would be the operator marking its own homework, which is the exact failure the
+        fixed reference exists to prevent.
+        """
         self.name = name
         self._authorize = authorize
+        self._harness = harness
         self.log: list[Event] = []
         self.asked = 0
         self.refused = 0
         self.taken = 0
+        #: Irreversible acts stopped because the agent was off its ground.
+        self.blocked_by_drift = 0
 
     # ── the one entry point ────────────────────────────────────────────────────────────
     def act(self, do, *, kind: str, target: str,
@@ -197,6 +212,31 @@ class Operator:
             raise TypeError(f'operator needs something callable, got {type(do).__name__}')
 
         a = Act(kind=kind, target=target, reversible=reversible, outward=outward)
+
+        # ── the sixth join ──────────────────────────────────────────────────────────────
+        #
+        # BEFORE the authorizer, not after, and that order is the point. Asking a human to
+        # approve an irreversible act by an agent that is off its goal is precisely the
+        # moment a human rubber-stamps: the request looks reasonable in isolation, because
+        # every drifting step does. The drift is only visible against the ground, and the
+        # ground is what the harness holds.
+        #
+        # Reversible, inward acts are untouched. A drifting agent may still read a file.
+        if self._harness is not None and a.needs_authorization:
+            v = getattr(self._harness, 'last', None)
+            if v is None:
+                # NO READING IS NOT A GOOD READING. An operator wired to a harness that has
+                # never been checked knows nothing about the agent asking it to act, and
+                # "nothing" must not be spent as "fine" — that is the failure this whole
+                # instrument is named after. Opt-in, so this breaks nobody who did not ask.
+                self.blocked_by_drift += 1
+                return self._refuse(a, 'the harness has taken no reading — call check() '
+                                       'before asking for something that cannot be undone')
+            if getattr(v, 'drifting', False):
+                self.blocked_by_drift += 1
+                return self._refuse(
+                    a, f'the agent is off its ground ({v.reason}, \u03a6={v.phi:.2f}) — '
+                       f'return before acting irreversibly. {v.advice}')
 
         if a.needs_authorization:
             self.asked += 1
