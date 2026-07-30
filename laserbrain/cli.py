@@ -4,6 +4,7 @@ laserbrain command line — the smart recursion harness, in your terminal.
     laserbrain demo                      watch an agent wander off-goal and get returned
     laserbrain check --goal "…" [--progress advancing] [--distance 6] [--against "…"]
     laserbrain verify run.json           verify an exported audit chain (tamper-evident)
+    laserbrain store [list|find|vend] [--kind workflow|team]   prefabricated methods
     laserbrain key                       get a free key for the hosted half
     laserbrain mcp                       run as an MCP server — offline, no key
     laserbrain version
@@ -164,6 +165,61 @@ def _verify(args: argparse.Namespace) -> int:
     return 1
 
 
+def _store(args: argparse.Namespace) -> int:
+    """List, find, or vend a prefabricated workflow or team preset from the store —
+    the third surface (Python import and MCP already had it) that could not reach 8
+    shipped workflows and 3 recursion-team presets before this command existed."""
+    from . import Store
+    s = Store()
+    action = args.action
+    kind_team = args.kind == 'team'
+
+    if action == 'list':
+        names = s.list_teams() if kind_team else s.list()
+        print()
+        print(f"  {_c(('team presets' if kind_team else 'workflows'), BOLD)} — {len(names)}")
+        for n in names:
+            print(f"    {n}")
+        print()
+        return 0
+
+    if action == 'find':
+        if not args.query:
+            print(_c('a task, in words: laserbrain store find "fix a broken build"', RED))
+            return 2
+        hits = (s.find_team(args.query, top=args.top) if kind_team
+                else s.find(args.query, top=args.top))
+        print()
+        if not hits:
+            print(f"  {_c('nothing matched', DIM)} {args.query!r}")
+            print()
+            return 1
+        for h in hits:
+            desc = h.get('task') if kind_team else h.get('goal')
+            score = _c(f"score {h['score']}", DIM)
+            print(f"  {_c(h['name'], GOLD)}  {score}")
+            print(f"    {desc}")
+        print()
+        return 0
+
+    if action == 'vend':
+        if not args.query:
+            print(_c('a name: laserbrain store vend build-and-ship', RED))
+            return 2
+        try:
+            spec = s.vend_team(args.query) if kind_team else s.vend(args.query)
+        except KeyError as e:
+            print(_c(str(e), RED))
+            return 2
+        print()
+        print(json.dumps(spec, indent=2))
+        print()
+        return 0
+
+    print(_c(f"unknown action {action!r} — list, find or vend", RED))
+    return 2
+
+
 def _coverage(args: argparse.Namespace) -> int:
     """How much of your work the harness actually watched.
 
@@ -225,6 +281,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     cv = sub.add_parser("coverage", help="how much of your work the harness actually watched")
     cv.add_argument("--dir", default="~/.claude/laserbrain",
                     help="where the hook writes sessions (default: ~/.claude/laserbrain)")
+    st = sub.add_parser("store", help="prefabricated workflows and team presets — list, find, or vend")
+    st.add_argument("action", nargs="?", default="list", choices=["list", "find", "vend"])
+    st.add_argument("query", nargs="?", default=None,
+                    help="a task in words (find) or a name (vend)")
+    st.add_argument("--kind", default="workflow", choices=["workflow", "team"])
+    st.add_argument("--top", type=int, default=3, help="find: how many matches (default 3)")
     k = sub.add_parser("key", help="get a free API key, and see what it allows")
     k.add_argument("--new", action="store_true",
                    help="fetch another key even if one is already stored")
@@ -241,6 +303,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _coverage(args)
     if args.cmd == "verify":
         return _verify(args)
+    if args.cmd == "store":
+        return _store(args)
     if args.cmd == "key":
         return _key(args)
     if args.cmd == "mcp":

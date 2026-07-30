@@ -292,6 +292,20 @@ run without a binding; a preset's roles carry a recurse depth and a return polic
 never code. Reading a method from someone you don't know is safe in a way that
 installing their package is not.
 
+Same store, from the terminal or over MCP — the two surfaces most agents actually
+arrive through, neither of which requires an `import`:
+
+```bash
+laserbrain store                                       # list workflows
+laserbrain store find "fix a broken build"              # ranked by what it's for
+laserbrain store vend build-and-ship                    # the spec, as JSON
+laserbrain store list --kind team                       # the three presets
+```
+
+```json
+{ "name": "store_vend", "arguments": { "name": "deep-search", "kind": "team" } }
+```
+
 ## Oversight, provenance, continuity
 
 **Human-in-the-loop.** A self-correcting return usually takes. When it doesn't —

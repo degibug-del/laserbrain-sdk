@@ -103,6 +103,37 @@ with tempfile.TemporaryDirectory() as d:
     show('a fully covered session exits 0 and reads as scorable',
          code == 0 and 'Scorable' in out, f'exit={code}')
 
+# ── store: the third surface (Python and MCP already had one) ────────────────
+code, out = run('store')
+show('bare store defaults to listing workflows', code == 0)
+show('  and includes a shipped one', 'build-and-ship' in out, out.strip()[:80])
+
+code, out = run('store', 'list', '--kind', 'team')
+show('store list --kind team lists the three presets',
+     code == 0 and 'deep-search' in out and 'adversarial-deliberation' in out)
+
+code, out = run('store', 'find', 'debate toward a resolved answer', '--kind', 'team')
+show('store find --kind team matches on task', code == 0 and 'adversarial-deliberation' in out)
+
+code, out = run('store', 'find', 'xyzzy plugh frotz')
+show('store find on nonsense exits nonzero and says so',
+     code == 1 and 'nothing matched' in out, f'exit={code}')
+
+code, out = run('store', 'find')
+show('store find with no task exits nonzero rather than raising', code == 2, f'exit={code}')
+
+code, out = run('store', 'vend', 'build-and-ship')
+show('store vend prints the spec as JSON',
+     code == 0 and json.loads(out).get('goal') == 'build something and put it in front of people')
+
+code, out = run('store', 'vend', 'deep-search', '--kind', 'team')
+show('store vend --kind team prints roles, not steps',
+     code == 0 and json.loads(out)['roles'][0]['role'] == 'explorer')
+
+code, out = run('store', 'vend', 'not-a-real-name')
+show('store vend on an unknown name exits nonzero rather than raising',
+     code == 2 and 'not-a-real-name' in out, f'exit={code}')
+
 # ── no command ───────────────────────────────────────────────────────────────
 code, out = run()
 show('bare invocation exits 0 with help rather than a traceback', code == 0, f'exit={code}')
