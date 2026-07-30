@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.29.0 — 2026-07-29
+
+**Claim detection, not cure.** No code changed. This release exists because the page every
+new user lands on made a claim three preregistered studies did not support.
+
+The act-layer section said the return means *"the agent recovers instead of spinning."*
+**Recovers** is a cure word. What is measured is that the return **cuts steps**. Whether it
+keeps the answer *as good* is **not established** — tested three ways, each frozen before it
+ran, and where the evidence is legible it leans the other way. Fewer steps is also not fewer
+tokens, a caveat the research page carries and the README did not.
+
+The research page has always held this line: κ = 0.10 on the judge panel, balanced accuracy
+0.55 with a confidence interval that includes chance, one answer key that was simply wrong,
+and the rule stated outright. Two other surfaces claimed past it, and a claim is only worth
+the boundary printed next to it.
+
+Both now link to [the studies, nulls included](https://phronesis.world/laserbrain/research)
+from the point the claim is made rather than from the top of a different page.
+
+Found by auditing the one category of public claim that had not been checked — prices, tool
+lists and deployed versions all had gates by then; the scientific claims had none.
+
 ## 0.28.0 — 2026-07-29
 
 **The README described a product two generations old, and it is the PyPI page.**

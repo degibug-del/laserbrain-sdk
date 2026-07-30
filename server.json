@@ -2,12 +2,12 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-07-09/server.schema.json",
   "name": "io.github.degibug-del/laserbrain",
   "description": "The drift harness as an MCP server. Offline, no key \u2014 a fixed reference an agent checks against.",
-  "version": "0.28.1",
+  "version": "0.29.0",
   "packages": [
     {
       "registryType": "pypi",
       "identifier": "laserbrain",
-      "version": "0.28.0",
+      "version": "0.29.0",
       "runtimeHint": "uvx",
       "packageArguments": [
         {
