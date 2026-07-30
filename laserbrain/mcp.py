@@ -295,7 +295,7 @@ TOOLS: dict[str, dict[str, Any]] = {
     'store_list': {
         'fn': _store_list,
         'description': (
-            'Every prefabricated method on the shelf: 8 task workflows shipped with the '
+            'Every prefabricated method on the shelf: 10 task workflows shipped with the '
             'package plus anything saved locally, or the 3 recursion-team presets. Names '
             'only — pass one to store_vend to see what it actually does.'),
         'schema': {'type': 'object',

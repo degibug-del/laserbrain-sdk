@@ -264,9 +264,10 @@ differently than the goal it serves. An irreversible or outward step with no
 operator is refused, not run.
 
 **The store vends both what it holds and what the grammar already defines.**
-`pip install laserbrain` ships 8 task workflows (`audit`, `build-and-ship`,
-`diagnose-and-fix`, `fix`, `full-release`, `investigate`, `promote`, `ship-built`)
-and, through the same object, the three recursion-team presets above — one door,
+`pip install laserbrain` ships 10 task workflows (`audit`, `build-and-ship`,
+`diagnose-and-fix`, `fix`, `full-release`, `investigate`, `new-repo`, `promote`,
+`repo-surgery`, `ship-built`) and, through the same object, the three
+recursion-team presets above — one door,
 two shapes behind it, because a workflow runs once in order and a preset cycles
 until it converges, and a name like `explorer` cannot honestly be squeezed into the
 first shape.
