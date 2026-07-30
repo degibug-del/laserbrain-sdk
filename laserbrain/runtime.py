@@ -163,6 +163,47 @@ def clean_prompt(text):
     return t.strip()
 
 
+# Things a person types that are not a task. Kept SMALL and closed on purpose — see
+# is_groundable for why a length rule would be wrong here.
+_NOT_A_TASK = {
+    'hello', 'hi', 'hey', 'yo', 'hiya', 'hello there', 'hey there', 'good morning',
+    'good afternoon', 'good evening', 'morning', 'thanks', 'thank you', 'ty', 'ok',
+    'okay', 'k', 'cool', 'nice', 'great', 'sure', 'yes', 'no', 'yep', 'nope', 'test',
+    'ping', 'you there', 'are you there', 'hello?', 'still there',
+}
+
+
+def is_groundable(text):
+    """Can this prompt serve as the fixed reference every later Φ is measured against?
+
+    On 2026-07-28 a session recorded its ground as 'hello there'. Every distance in that
+    session was then measured against a greeting, and the verdicts it produced went into
+    the corpus the calibration is tuned on. A ground has to be a task or it grounds
+    nothing.
+
+    TWO REJECTIONS ONLY, and the restraint is the point:
+
+      · a slash command ('/hello', '/clear') is addressed to the harness, not a task
+      · a bare greeting or acknowledgement from the closed set above
+
+    NOT a length rule, however tempting. The most frequent real tasks in this project's
+    own history are two words — 'map all', 'reconcile', 'publish', 'fix them', 'go for
+    it' — and a minimum length would throw away exactly the terse seeds that turn out to
+    be the largest pieces of work. Better to occasionally ground on something odd than to
+    routinely discard the real thing.
+
+    When this returns False the ground is simply not set yet. The next substantive prompt
+    takes it, or the agent's first spelled check does — Session.check already grounds on
+    the goal the agent states, which is a better source anyway.
+    """
+    t = clean_prompt(text)
+    if not t:
+        return False
+    if t.startswith('/'):
+        return False
+    return t.strip().lower().rstrip('.!?') not in _NOT_A_TASK
+
+
 def normalise(ev):
     """Any runtime's event -> (kind, tool, args, ok, text).
 
@@ -294,6 +335,11 @@ class Session:
         if not t:
             return self
         if self.d.get('goal') or self.d.get('was_reset'):
+            return self
+        # A greeting is not a task. Leaving the ground unset costs one session's early
+        # verdicts; setting it to 'hello there' corrupts every verdict in the session and
+        # then the corpus, which is worse and much harder to notice.
+        if not is_groundable(t):
             return self
         self.d['goal'] = t[:400]
         self._obs = Observer(self.d['goal'])

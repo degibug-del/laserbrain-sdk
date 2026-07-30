@@ -80,5 +80,33 @@ for _ in range(3):
 show('three identical calls read as circling in both', both('Bash', 'npm run build', False) == ('circling', 'circling'))
 show('one different call recovers immediately in both', both('Bash', 'echo hi', True) == ('advancing', 'advancing'))
 
+# ── the ground rules, duplicated 2026-07-29 ────────────────────────────────────────
+# clean_prompt and is_groundable are the SECOND pair to be copied into the hook, and the
+# reason they exist is a drift of exactly this kind: the fallback stored the prompt raw
+# while the SDK path cleaned it, so which code path ran decided whether a session's ground
+# was a task or a lump of markup. A session on 2026-07-28 grounded on 'hello there'.
+from laserbrain.runtime import clean_prompt as sdk_clean, is_groundable as sdk_ground
+
+CASES = [
+    '<user_query>\n/hello\n</user_query>', 'hello there', 'hi', '/hello', '/clear',
+    'ok', 'thanks', 'Hello There.', '  ', '',
+    # terse-but-real: these are actual first prompts from this project's history and every
+    # one of them must remain groundable. A minimum-length rule would reject the lot.
+    'map all', 'reconcile', 'publish', 'fix them', 'go for it', 'u run it',
+    'both, repo first', 'Computer = Operator', 'AI native workflows',
+    'do we need to update the worker?', 'what should we do today?',
+]
+bad_clean = [c for c in CASES if sdk_clean(c) != hook.clean_prompt(c)]
+bad_ground = [c for c in CASES if sdk_ground(c) != hook.is_groundable(c)]
+show('clean_prompt agrees in both copies', not bad_clean, f'differs on {bad_clean}' if bad_clean else f'{len(CASES)} cases')
+show('is_groundable agrees in both copies', not bad_ground, f'differs on {bad_ground}' if bad_ground else f'{len(CASES)} cases')
+
+# and prove the rule itself is right, not merely consistent — two identical wrong copies
+# would pass every parity check above.
+show('a greeting cannot be a ground', not sdk_ground('hello there'))
+show('a slash command cannot be a ground', not sdk_ground('/hello'))
+show('a two-word task CAN be a ground', sdk_ground('map all') and sdk_ground('fix them'))
+show('wrapped markup unwraps before judging', sdk_clean('<user_query>\nmap all\n</user_query>') == 'map all')
+
 print('\n  ' + ('PASS' if ok else 'FAIL'))
 raise SystemExit(0 if ok else 1)
