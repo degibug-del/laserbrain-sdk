@@ -9,6 +9,14 @@
       "identifier": "laserbrain",
       "version": "0.29.0",
       "runtimeHint": "uvx",
+      "runtimeArguments": [
+        {
+          "type": "named",
+          "name": "--from",
+          "value": "laserbrain==0.29.0",
+          "description": "Pin the exact version this entry names. uvx resolves to the newest PyPI release by default, so without this an older, no-longer-latest registry entry would silently invoke a different package than the one it describes. Keep this version in sync with the two above it — check-registry-entry.py asserts all three agree."
+        }
+      ],
       "packageArguments": [
         {
           "type": "positional",
