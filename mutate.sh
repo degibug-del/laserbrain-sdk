@@ -28,38 +28,69 @@
 set -uo pipefail
 cd "$(dirname "$0")"
 
-SRC=laserbrain/__init__.py
-BAK=$(mktemp)
-cp "$SRC" "$BAK"
-restore() { cp "$BAK" "$SRC"; }
+SRC_PY=laserbrain/__init__.py
+BAK_PY=$(mktemp)
+cp "$SRC_PY" "$BAK_PY"
+
+SRC_JSON=laserbrain/grammar.json
+BAK_JSON=$(mktemp)
+cp "$SRC_JSON" "$BAK_JSON"
+
+restore() { cp "$BAK_PY" "$SRC_PY"; cp "$BAK_JSON" "$SRC_JSON"; }
 trap restore EXIT
 
-# name | sed expression | why it must be caught
+# name | sed expression | why it must be caught | file (py or json)
+#
+# Fixing the sed text to match 0.5.0's _D.get('goal_min', 0.30) refactor (see git blame)
+# only got the patterns matching again — it did not make them mean anything. _D is built
+# as `_G.get('calibration') or {}`, and _G is grammar.json. For every key grammar.json's
+# calibration section actually sets — goal_min, self_report_min, stall_window, the three
+# weights — the literal inside .get(key, LITERAL) is a fallback for a key that is never
+# missing, so mutating it changes nothing that runs. Proved live: sed'ing the Python
+# literal left test_frozen.py green; sed'ing the SAME value in grammar.json failed it in
+# the same run. Only echo_min and dialogue_window are absent from grammar.json's
+# calibration, so those two are the only ones the Python literal still governs.
 MUTATIONS=(
-  "goal threshold 0.30 -> 0.45|s/goal_min=0.30/goal_min=0.45/|the drift boundary is the product; moving it must never be silent"
-  "goal weight 0.5 -> 0.2|s/w_goal=0.5, w_distance=0.3, w_progress=0.2/w_goal=0.2, w_distance=0.3, w_progress=0.5/|Φ is reported against fixed thresholds; reweighting rescales every verdict"
-  "self-report floor 0.15 -> 0.40|s/self_report_min=0.15/self_report_min=0.40/|a raised floor silently stops honouring the agent's own stuck report"
-  "stall window 4 -> 9|s/stall_window=4/stall_window=9/|a wider window means a stall is reported far later, or never"
-  "echo floor 0.25 -> 0.90|s/echo_min=0.25/echo_min=0.90/|teams stop detecting echo-spiral entirely"
-  "detection disabled|s/if anchor < self.cal.goal_min:/if anchor < -1.0:/|the control: if THIS is not caught, nothing is wired up at all"
+  "goal threshold 0.30 -> 0.45|s/\"goal_min\": 0.3,/\"goal_min\": 0.45,/|the drift boundary is the product; moving it must never be silent|json"
+  "goal weight 0.5 -> 0.2|s/\"goal\": 0.5,/\"goal\": 0.2,/; s/\"progress\": 0.2/\"progress\": 0.5/|Φ is reported against fixed thresholds; reweighting rescales every verdict|json"
+  "self-report floor 0.15 -> 0.40|s/\"self_report_min\": 0.15,/\"self_report_min\": 0.40,/|a raised floor silently stops honouring the agent's own stuck report|json"
+  "stall window 4 -> 9|s/\"stall_window\": 4,/\"stall_window\": 9,/|a wider window means a stall is reported far later, or never|json"
+  "echo floor 0.25 -> 0.90|s/_D.get('echo_min', 0.25)/_D.get('echo_min', 0.90)/|teams stop detecting echo-spiral entirely|py"
+  "detection disabled|s/if anchor < self.cal.goal_min:/if anchor < -1.0:/|the control: if THIS is not caught, nothing is wired up at all|py"
 )
 
 if [ "${1:-}" = "--list" ]; then
   printf '  %s\n' "${MUTATIONS[@]%%|*}"; exit 0
 fi
 
-SUITE=(test_metric test_adapters test_async test_ecosystem test_nested test_frozen
-       test_vocab test_observe test_cli test_runtime test_behaviour)
+# Was a hand-written 11-file list. It stopped covering 19 of the 30 test_*.py files in
+# this directory, silently — test_operator.py and test_mcp_server.py included — for the
+# same reason publish-0.29.0.sh stopped naming symbols: a hardcoded list can never contain
+# the thing you just added. Every mutation here was still "caught" or "survived" against a
+# suite ten files smaller than the one that actually exists.
+ALL_TESTS=()
+for f in test_*.py; do ALL_TESTS+=("${f%.py}"); done
+SUITE=("${ALL_TESTS[@]}")
 
 DEEP=0
 if [ "${1:-}" = "--deep" ]; then
   DEEP=1
   # drop test_frozen: what is left is behaviour, not a pinned value
-  SUITE=(test_metric test_adapters test_async test_ecosystem test_nested
-         test_vocab test_observe test_cli test_runtime test_behaviour)
+  SUITE=()
+  for t in "${ALL_TESTS[@]}"; do
+    [ "$t" = "test_frozen" ] || SUITE+=("$t")
+  done
 fi
 
 run_suite() {
+  # echo_min's mutation showed "caught" standalone and "SURVIVED" only inside this loop —
+  # same file, same md5, confirmed by print. The running process still reported echo_min
+  # as 0.25, the PRISTINE value: test_frozen.py was importing a cached __pycache__/*.pyc
+  # compiled before the sed, because restore()+sed()+import all landed inside one mtime
+  # tick. A manual run always has enough wall-clock gap between the edit and the import to
+  # dodge this; the loop doesn't. Clearing the cache before every subprocess removes the
+  # gap it depends on. JSON mutations were never at risk — grammar.json isn't compiled.
+  find . -maxdepth 3 -path '*/__pycache__/*' -type f -delete 2>/dev/null
   for t in "${SUITE[@]}"; do
     python3 "$t.py" >/dev/null 2>&1 || return 1
   done
@@ -77,10 +108,13 @@ echo
 
 survived=0
 for m in "${MUTATIONS[@]}"; do
-  name=${m%%|*}; rest=${m#*|}; expr=${rest%%|*}; why=${rest#*|}
+  name=${m%%|*}; rest=${m#*|}
+  expr=${rest%%|*}; rest=${rest#*|}
+  why=${rest%%|*}; file=${rest#*|}
+  if [ "$file" = "json" ]; then TARGET=$SRC_JSON; TBAK=$BAK_JSON; else TARGET=$SRC_PY; TBAK=$BAK_PY; fi
   restore
-  sed -i '' "$expr" "$SRC"
-  if cmp -s "$SRC" "$BAK"; then
+  sed -i '' "$expr" "$TARGET"
+  if cmp -s "$TARGET" "$TBAK"; then
     echo "  ⚠ $name — the mutation did not apply; the code it targets has moved"
     survived=$((survived + 1)); continue
   fi
