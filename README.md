@@ -101,8 +101,15 @@ crashing the check.
 
 ## The act layer — close the loop
 
-Give laserbrain your step function and it detects drift *and* injects the return, so
-the agent recovers instead of spinning. Your step reads `ctx["return"]` and steers back.
+Give laserbrain your step function and it detects drift *and* injects the return. Your
+step reads `ctx["return"]` and steers back.
+
+**Precisely what that buys.** The return **cuts steps** — that part is measured. Whether it
+keeps the answer *as good* is **not established**: it was tested three ways, each frozen
+before it ran, and where the evidence is legible it leans the other way. Fewer steps is also
+not fewer tokens. The rule we hold ourselves to is **claim detection, not cure** — detection
+is the theorem; the cure is a study we ran three times and did not win.
+[The studies, nulls included.](https://phronesis.world/laserbrain/research)
 
 ```python
 def step(ctx):
