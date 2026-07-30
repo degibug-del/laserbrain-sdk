@@ -104,5 +104,22 @@ show('raise it to 0.90 and echo-spiral is never reported',
      team_reason(0.90) != 'echo-spiral',
      'teams stop detecting the thing teams exist to detect')
 
+# Every other section above reaches PUBLISHED through cal=None. This one never did — both
+# cases construct Calibration(echo_min=echo_min) with a literal the TEST chose, so if the
+# shipped default itself moved, nothing here would notice; team_reason(0.25) would keep
+# passing 0.25 by hand regardless of what PUBLISHED actually held. Proved live: this was
+# the one mutation ./mutate.sh caught only via test_frozen.py, never behaviourally.
+def default_team_reason():
+    t = Team('deep-search', 'ship the sky billboard')          # no calibration kwarg
+    t._dlg.step('a', 'ship the sky billboard now', 5)
+    v = None
+    for _ in range(5):
+        v = t._dlg.step('b', 'ship the sky billboard now', 5)
+    return v['reason']
+
+
+show('the UNCONFIGURED default also reads a repeating team as echo-spiral',
+     default_team_reason() == 'echo-spiral', f'reason={default_team_reason()}')
+
 print('\n  ' + ('PASS' if ok else 'FAIL'))
 raise SystemExit(0 if ok else 1)
