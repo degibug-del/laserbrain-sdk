@@ -9,30 +9,54 @@ fine next to the last while it wanders far from where it began. laserbrain is a
 [The theorem and the studies (nulls included).](https://phronesis.world/laserbrain/research)
 · [Watch it work.](https://phronesis.world/laserbrain/demo)
 
-The check is a pure function, so this SDK runs it **locally and free** — no key, no
-latency. Add a key and it also mirrors to the API for retained drift history,
-alerts and the fleet view: you pay to *see* your agents drift, not for the check.
+The check is a pure function, so it runs **locally and offline** — no key, no account,
+no network call, no telemetry.
 
 ```bash
 pip install laserbrain
 ```
 
-See it work before writing any code:
+## Give it to your agent — MCP, offline, no key
+
+Most agents can't `import laserbrain`. They speak MCP. So the package **is** an MCP server:
+
+```bash
+laserbrain mcp          # JSON-RPC on stdin/stdout
+```
+
+Point any MCP client at it:
+
+```json
+{ "mcpServers": { "laserbrain": { "command": "laserbrain", "args": ["mcp"] } } }
+```
+
+That's the whole installation. Your agent now has `check_state`, `modulate`,
+`get_history`, `reset_task`, `similarity`, `laserscore` and `capabilities` — no
+dependencies, and it keeps working with the network unplugged. The tools that need a
+server aren't offered here; `capabilities` says which and why, rather than letting you
+find out by failure.
+
+See it work before writing anything:
 
 ```bash
 laserbrain demo          # watch an agent drift off-goal and get returned
 laserbrain check --goal "write a poem" --against "build a parser"   # a one-shot drift check
 ```
 
-And when you want the hosted half:
+### The hosted half, if you want it
 
 ```bash
 laserbrain key           # a free key, saved to ~/.config/laserbrain/key
 ```
 
-No form, no email, no card. It prints what that key actually allows — the numbers the
-API enforces, not the ones the docs claim — and the check keeps working offline whether
-you ever run it or not.
+No form, no email, no card. It prints what that key actually allows — the numbers the API
+enforces, not the ones the docs claim.
+
+**What a key buys is a *place*, not a better detector.** One machine needs no server: the
+check is complete, and every session is written to your disk and kept there forever with no
+expiry we control. What one machine physically cannot do is be awake while you sleep, be
+read by a colleague's laptop, or notice that a *second* agent is already deploying the same
+thing. That's the whole paid line — [machines, not features](https://phronesis.world/laserbrain).
 
 ## The check (local, free)
 
@@ -103,6 +127,62 @@ print(hz.report())
 #   Φ  ▁▂▃▃▃▃▃▃▅▇█  peak 0.21
 #   drifts: stalled×1
 ```
+
+## Modulation — the verdict, and what your role should do about it
+
+The check says whether you've drifted. **Modulation says what to do about it, in the voice
+of the role the agent is playing** — and the two are deliberately separate. Detection is the
+theorem and is identical for everyone. What a role *tolerates* is negotiable, which is why
+it lives in a team template rather than in the instrument.
+
+```python
+modulate(goal="build the parser", progress="stuck", distance=5,
+         team="deep-search", role="explorer")
+# {"reason": "self-report:stuck",
+#  "modulation": {"return": false, "basis": "explorer recurses deep",
+#                 "advice": "explorer (recurse: deep) tolerates self-report:stuck — recursing on."}}
+```
+
+Same verdict, opposite action, depending on who is asking:
+
+| role | recurse | on `self-report:stuck` |
+|---|---|---|
+| `explorer` | deep | **keeps going** — an explorer needs room |
+| `checker` | tight | **returns** — restate the goal, verify the last step |
+
+Available over MCP as `modulate` and as `POST /v1/modulate`. Presets: `deep-search`,
+`iterative-refinement`, `adversarial-deliberation`. An unknown team is an error, never a
+silent fall back to unstyled — that would answer "return" on everything and let you believe
+a policy you misspelled was being applied.
+
+## The hands — a drifting agent can't do what it can't undo
+
+`Operator` is the layer that touches the world, and it refuses anything irreversible without
+authorization. Give it the harness and it also refuses anything irreversible **while the
+agent is off its ground**:
+
+```python
+hz = Harness("build the parser")
+op = Operator(authorize=ask_me, harness=hz)
+
+hz.check("write documentation instead", "advancing", 4)   # drifted
+op.act(deploy, kind="deploy", target="prod")
+# Refused: the agent is off its ground (goal-drift, phi=0.53) — return before acting
+#          irreversibly.
+```
+
+Three things there are deliberate. It reads the harness's **last** verdict rather than
+taking its own — an operator has no goal or distance to spell, and inventing them would be
+the operator marking its own homework. The consult happens **before** the authorizer,
+because asking a person to approve an irreversible act by an off-goal agent is exactly when
+a person rubber-stamps. And a harness that has never been checked is a **refusal**, not a
+pass: no reading is not a good reading.
+
+A drifting agent may still read a file. Only what cannot be taken back is guarded.
+
+Add `key=` and it also asks the hosted service whether *another agent in your group* is
+already doing this — two agents, each perfectly grounded, each advancing, both deploying
+prod. That fault exists only between them and is invisible from inside either.
 
 ## Nested recursion — a recursion as a set of recursions
 
