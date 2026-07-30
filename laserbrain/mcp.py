@@ -39,7 +39,8 @@ import json
 import sys
 from typing import Any
 
-from . import Harness, Verdict, __version__, ground_score, laserscore, norm
+from . import PRESETS, Harness, Verdict, __version__, ground_score, laserscore, norm
+from . import _G
 
 PROTOCOL = '2024-11-05'
 
@@ -105,6 +106,61 @@ def _laserscore(args: dict) -> dict:
                                      args.get('distance'))}
 
 
+# The policy table, from the grammar — the same one teams.ts reads. Kept out of this file
+# on purpose: it lived only in the Worker's TypeScript until 2026-07-29, which is exactly
+# why modulate could not be offered locally. Copying it here would have made a fourth copy
+# of a list this project has already watched drift twice.
+_MOD = (_G.get('modulation') or {})
+_MODES = _MOD.get('modes') or []
+_DEPTHS = _MOD.get('depths') or {}
+
+
+def _modulate(args: dict) -> dict:
+    """The verdict, and what the agent's ROLE should do about it.
+
+    Detection is the theorem and is computed by the same Harness as check_state. Policy is
+    which drifts a given role acts on, and it is negotiable — which is why it comes from
+    grammar.modulation rather than from the instrument.
+    """
+    goal = str(args.get('goal', '')).strip()
+    if not goal:
+        return {'error': 'modulate needs a goal — the ground is set from it and frozen'}
+    if _state['harness'] is None:
+        _state['harness'] = Harness()
+    v = _state['harness'].check(goal, str(args.get('progress', 'advancing')), args.get('distance'))
+    out = _verdict_dict(v)
+    _state['checks'].append({'goal': goal, **out})
+
+    team_name, role_name = args.get('team'), args.get('role')
+    # An unknown team is an ERROR, not a quiet fall back to unstyled — that would answer
+    # "return" on everything and let a caller believe a policy they misspelled was applied.
+    if team_name and team_name not in PRESETS:
+        return {'error': f'no preset named {team_name!r}',
+                'presets': sorted(PRESETS)}
+    roles = PRESETS.get(team_name) if team_name else None
+    role = next((r for r in (roles or []) if r.get('role') == role_name), None)
+    if roles and role_name and role is None:
+        return {'error': f'{team_name} has no role {role_name!r}',
+                'roles': [r.get('role') for r in roles]}
+
+    if v.reason not in _MODES:
+        mod = {'return': False, 'advice': v.advice, 'basis': f'{v.reason} is not a drift mode'}
+    elif role is None:
+        mod = {'return': True, 'advice': v.advice, 'basis': 'unstyled — every drift returns'}
+    else:
+        acts = role.get('modes') or _DEPTHS.get(role.get('recurse', 'balanced'), [])
+        ret = v.reason in acts
+        mod = {
+            'return': ret,
+            'advice': (role.get('return') or v.advice) if ret
+                      else f"{role['role']} (recurse: {role.get('recurse')}) tolerates {v.reason} — recursing on.",
+            'basis': f"{role['role']} recurses {role.get('recurse')}",
+        }
+    mod['team'] = team_name if roles else None
+    mod['role'] = role['role'] if role else None
+    return {**out, 'modulation': mod}
+
+
 def _capabilities(args: dict) -> dict:
     return {
         'version': __version__,
@@ -138,6 +194,25 @@ TOOLS: dict[str, dict[str, Any]] = {
                              'description': 'Honestly. A false "advancing" wastes the reading.'},
                 'distance': {'type': 'number',
                              'description': 'How far from done, 0-10. 0 means finished.'},
+            },
+            'required': ['goal'],
+        },
+    },
+    'modulate': {
+        'fn': _modulate,
+        'description': (
+            'Check your state AND get the intervention your role should take. Same verdict as '
+            'check_state, plus a policy decision: whether THIS role returns on THIS drift, and '
+            'the wording to return with. Pass team + role for a recursion-team preset; without '
+            'them every drift returns, unstyled. Offline, like everything else here.'),
+        'schema': {
+            'type': 'object',
+            'properties': {
+                'goal': {'type': 'string'},
+                'progress': {'type': 'string', 'enum': ['advancing', 'stuck', 'circling']},
+                'distance': {'type': 'number'},
+                'team': {'type': 'string', 'description': 'A recursion-team preset name.'},
+                'role': {'type': 'string', 'description': 'Which role this agent is playing.'},
             },
             'required': ['goal'],
         },

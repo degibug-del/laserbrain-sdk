@@ -37,7 +37,33 @@ failure this instrument is named after. It refuses, and says so.
 blocked everything, the first thing anyone would do is unwire the harness — and an operator
 that refuses everything is not safe, it is broken.
 
-Entirely opt-in: `Operator()` without a harness behaves exactly as before.
+**And the half no single machine can do.** `Operator(key=…)` also asks the hosted service
+before an irreversible act, and the question is one a laptop cannot answer:
+
+    A: allow=True   clear
+    B: allow=False  duplicate — another agent in this group started deploy on prod at 02:05
+
+Two agents, each perfectly grounded, each advancing, each correct at every step, both
+deploying prod. That fault exists only as a relation between them and is invisible from
+inside either. The server cannot hold anyone's hands — the agent runs on someone else's
+computer — but the LOCAL operator does enforce, so the answer has teeth.
+
+**It fails open, loudly.** If the service cannot be reached the act proceeds, because a
+network blip must not stop a deploy the local instrument already cleared. The consult
+returns None rather than an allow, and None is deliberately distinct: "we did not ask" and
+"we asked and it said yes" are different facts about an irreversible action. The endpoint
+reports the same way — `checked: {drift, group}` says what actually happened, because an
+allow that skipped both looks identical to an allow that passed both.
+
+Entirely opt-in: `Operator()` without a harness or key behaves exactly as before.
+
+**`laserbrain mcp` also gains `modulate`**, and grammar **1.19.0** is why it could. The
+policy table — the eight drift modes, the three recurse depths, the recursion-team presets
+— lived only in the Worker's TypeScript, so modulation could be served there and nowhere
+else. Adding it locally meant copying the table, a fourth copy of a list this project has
+already watched drift twice. `grammar.modulation` is canonical now and three
+implementations read it, so the offline server answers exactly what the hosted one does:
+`explorer(deep)` tolerates `self-report:stuck`, `checker(tight)` returns on it.
 
 `test_operator_harness.py`, twelve cases, including the ordering claim and the boring one
 that matters most — that a grounded agent can still act.

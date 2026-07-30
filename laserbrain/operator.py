@@ -177,7 +177,8 @@ class Operator:
     #: reading gives it a basis for. Written into layers.operator.routing in grammar 1.8.0.
     routable = False
 
-    def __init__(self, authorize=None, name: str = 'operator', harness=None):
+    def __init__(self, authorize=None, name: str = 'operator', harness=None,
+                 key: str | None = None, api: str | None = None, run_id: str | None = None):
         """`harness` wires the hands to the instrument. Optional, and off by default.
 
         Give it a Harness and this operator will not take an irreversible or outward action
@@ -193,12 +194,17 @@ class Operator:
         self.name = name
         self._authorize = authorize
         self._harness = harness
+        self._key = key
+        self._api = api
+        self._run_id = run_id
         self.log: list[Event] = []
         self.asked = 0
         self.refused = 0
         self.taken = 0
         #: Irreversible acts stopped because the agent was off its ground.
         self.blocked_by_drift = 0
+        #: Irreversible acts stopped because a PEER was already doing them.
+        self.blocked_by_peer = 0
 
     # ── the one entry point ────────────────────────────────────────────────────────────
     def act(self, do, *, kind: str, target: str,
@@ -237,6 +243,26 @@ class Operator:
                 return self._refuse(
                     a, f'the agent is off its ground ({v.reason}, \u03a6={v.phi:.2f}) — '
                        f'return before acting irreversibly. {v.advice}')
+
+        # ── the group half of the join ──────────────────────────────────────────────────
+        #
+        # The local check above knows this agent. It cannot know that a DIFFERENT agent, on
+        # a different machine, is already deploying the same thing — two agents each
+        # perfectly grounded and each advancing, doing one irreversible thing twice. That
+        # fault exists only between them.
+        #
+        # FAILS OPEN, LOUDLY. If the service cannot be reached the act proceeds, because a
+        # network blip must not stop a deploy that the local instrument already cleared —
+        # but the event records that the group was not consulted, so a later reader is
+        # never told a check happened that did not.
+        if self._key and a.needs_authorization:
+            verdict = self._consult_group(a)
+            if verdict is not None and not verdict.get('allow', True):
+                if verdict.get('reason') == 'duplicate':
+                    self.blocked_by_peer += 1
+                else:
+                    self.blocked_by_drift += 1
+                return self._refuse(a, str(verdict.get('detail') or verdict.get('reason') or 'refused by the group'))
 
         if a.needs_authorization:
             self.asked += 1
@@ -357,6 +383,31 @@ class Operator:
 
         return self.act(run or _do, kind='http', target=f'{m} {url}',
                         reversible=read_only, outward=not read_only)
+
+    def _consult_group(self, a: 'Act'):
+        """Ask the hosted operator whether a PEER is already doing this. None = not asked.
+
+        Returns the service's answer, or None when it could not be reached — and None is
+        deliberately distinct from an allow, because "we did not ask" and "we asked and it
+        said yes" are different facts about an irreversible action.
+        """
+        import json as _json
+        import urllib.request
+        api = self._api or 'https://laserbrain-mcp.degibug.workers.dev'
+        body = _json.dumps({
+            'run_id': self._run_id, 'kind': a.kind, 'target': a.target,
+            'reversible': a.reversible, 'outward': a.outward,
+        }).encode()
+        req = urllib.request.Request(
+            f'{api}/v1/operator/consult', data=body, method='POST',
+            headers={'content-type': 'application/json',
+                     'user-agent': 'laserbrain-sdk',
+                     'authorization': f'Bearer {self._key}'})
+        try:
+            with urllib.request.urlopen(req, timeout=10) as r:
+                return _json.loads(r.read() or b'{}')
+        except Exception:
+            return None
 
     # ── record-keeping ─────────────────────────────────────────────────────────────────
     def _refuse(self, a: Act, why: str):
