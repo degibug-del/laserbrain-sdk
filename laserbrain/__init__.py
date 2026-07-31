@@ -21,7 +21,7 @@ instrument); the multi-agent dialogue + recursion teams are the prototype extens
 """
 from __future__ import annotations
 from dataclasses import dataclass
-import hashlib, json, re
+import datetime as _dt, hashlib, json, re
 from pathlib import Path as _Path
 
 __all__ = ['Harness', 'Team', 'Verdict', 'PRESETS', 'norm', 'laserscore', 'verify_audit', 'ground_score', 'MAX_DEPTH']
@@ -194,6 +194,64 @@ def _b36(n):
         n, r = divmod(n, 36)
         out = digits[r] + out
     return out
+
+
+# Written by both implementations, in the same format, at the same path. That is the whole
+# point: a context met through the MCP server on Monday is the same context met through the
+# package on Thursday, or the memory is worthless.
+CONTEXTS = _Path.home() / '.config' / 'laserbrain' / 'contexts.json'
+
+
+def _read_contexts():
+    try:
+        d = json.loads(CONTEXTS.read_text())
+        return d if isinstance(d, dict) else {}
+    except Exception:
+        return {}
+
+
+def remember_context(cid, goal, distance, reason, run=None, score=None):
+    """Record one sighting of a context; return what was known BEFORE it.
+
+    Returns (prior, repetition) — the prior lets a caller tell "first time here" from
+    "fourth time here", and `repetition` is how many times this exact laserscore has now
+    been written in this context.
+
+    Counting spellings within a context is a reading neither mechanism gives alone: the
+    context knows which work this is but nothing about its state, and a laserscore states
+    the case exactly but remembers nothing. Mirrors rememberContext in
+    lasermind/mcp-server.mjs, including the file format, since both write this file.
+    """
+    if not cid:
+        return None, 0
+    all_ = _read_contexts()
+    prior = dict(all_[cid]) if cid in all_ else None
+    now = _dt.datetime.now(_dt.timezone.utc).isoformat(timespec='seconds')
+    e = all_.get(cid) or {
+        'id': cid, 'tokens': sorted(norm(goal)), 'first_seen': now,
+        'sessions': [], 'checks': 0, 'best_distance': None, 'outcomes': {}, 'spellings': {},
+    }
+    e['last_seen'] = now
+    e['checks'] = e.get('checks', 0) + 1
+    d = _asdist(distance)
+    e['best_distance'] = d if e.get('best_distance') is None else min(e['best_distance'], d)
+    e.setdefault('outcomes', {})
+    e['outcomes'][reason] = e['outcomes'].get(reason, 0) + 1
+    e.setdefault('sessions', [])
+    if run and run not in e['sessions']:
+        e['sessions'].append(run)
+    e.setdefault('spellings', {})
+    repetition = 0
+    if score:
+        e['spellings'][score] = e['spellings'].get(score, 0) + 1
+        repetition = e['spellings'][score]
+    all_[cid] = e
+    try:
+        CONTEXTS.parent.mkdir(parents=True, exist_ok=True)
+        CONTEXTS.write_text(json.dumps(all_, indent=1))
+    except Exception:
+        pass   # fail open: a context we cannot store is a memory we lack, not an error
+    return prior, repetition
 
 
 def _cycle(reasons):
@@ -463,6 +521,12 @@ class _Run:
         self.corroborated = 0       # checks whose self-report was backed by observed work
         self.checks = 0
         self._osc = False        # already reported an oscillation for the current cycle
+        # Identity of this run, so a context can count the SESSIONS it has been opened in
+        # and not merely the checks. Three attempts across three sessions is a different
+        # fact from thirty checks in one, and only the first justifies 'abandon'.
+        self.run_id = _b36(int(_dt.datetime.now(_dt.timezone.utc).timestamp() * 1000))
+        self.repetition = 0      # times the current spelling has been written in its context
+        self.context = None
 
     def _goal_score(self, goal):
         """Overlap between the goal just spelled and the one this run started with."""
@@ -516,6 +580,18 @@ class _Run:
                               else self.first_goal_text)
         window = getattr(self.cal, 'stall_window', 4)
 
+        # The two mechanisms read together. `repetition` is how many times the CURRENT
+        # spelling has been written in this context; `ceiling` is the closest this context
+        # has ever come to done across every session. Neither is available to either
+        # mechanism alone — a context knows which work this is but nothing of its state,
+        # and a laserscore states the case exactly but remembers nothing.
+        cid = self.context or context_id(self.first_goal_text)
+        known = _read_contexts().get(cid) if cid else None
+        spellings = (known or {}).get('spellings') or {}
+        repetition = max(spellings.values()) if spellings else 0
+        ceiling = (known or {}).get('best_distance')
+        prior_runs = len([s for s in (known or {}).get('sessions', []) if s != self.run_id])
+
         # Three checks before any hard verdict. Replaying the 141-run corpus, several
         # two-check runs were handed 'narrow' and 'wrong-problem' on a trace with almost
         # nothing in it. Judgment needs evidence; two readings is a rumour.
@@ -527,6 +603,15 @@ class _Run:
                        f'never once improved. Nothing tried so far has moved this.')
             counsel = ('Stop. Either the approach is wrong or the goal is not reachable as stated. '
                        'Say plainly what is blocking it rather than taking a thirteenth run at it.')
+        elif judged and prior_runs >= 2 and closed <= 0:
+            # Only history can say this. A run watching itself sees one attempt and cannot
+            # know it is the fourth — which is exactly the reading the context store exists
+            # to make possible.
+            verdict = 'abandon'
+            because = (f'This context has been opened in {prior_runs} earlier sessions and closed in '
+                       f'none. Best distance ever reached is {ceiling}; this run has closed {closed}.')
+            counsel = ('A problem that resists three separate attempts is usually the wrong problem. '
+                       'Change the approach or hand it back before spending another session.')
         elif judged and goal_drifts >= 3 and goal_drifts > regrounds and pace <= 0:
             verdict = 'wrong-problem'
             because = (f'The goal has failed its overlap check {goal_drifts} times against only '
@@ -546,6 +631,22 @@ class _Run:
             because = ('A repeating cycle was detected and the distance is not falling — you have '
                        'returned to the same place after being told to return.')
             counsel = 'Returning again will land you here a third time. Change the approach, not the position.'
+        elif judged and repetition >= 3 and pace <= 0:
+            # THRESHOLD FROM THE CORPUS, not from taste. Across 382 contexts in
+            # drift-log.jsonl the maximum identical-spelling repeat distributes: >=2 fires
+            # on 9.7% (noise — ordinary work restates itself once), >=3 on 2.6% (ten
+            # contexts), >=4 on 1.0%. Three is selective without being inert, inertness
+            # being the failure this project already names for stall window 4.
+            #
+            # A stronger claim than `stalled`, hence its place above `narrow`. Stalled
+            # reads the distance alone, and distance sits flat through legitimate
+            # sub-work; an identical laserscore means goal, progress AND distance are all
+            # unchanged. Not failing to get closer — writing the same sentence again.
+            verdict = 'repeating'
+            because = (f'The identical state has been written {repetition} times in this context. '
+                       f'Goal, progress and distance are all unchanged.')
+            counsel = ('Not a slow patch — the same patch. Change what you are doing, or say plainly '
+                       'what is blocking it. Restating the position will not move it.')
         elif now is not None and now >= 6 and flat >= window:
             verdict = 'narrow'
             because = (f'Distance has sat at {", ".join(str(d) for d in dh[-flat:])} for {flat} checks '
@@ -583,7 +684,10 @@ class _Run:
             'scores': {'goal': gs,
                        'closure': round(closed / started, 2) if started else (1 if now == 0 else 0),
                        'pace': round(pace, 2),
-                       'evidence': round(self._anchor(), 2)},
+                       'evidence': round(self._anchor(), 2),
+                       'recurrence': prior_runs,
+                       'repetition': repetition,
+                       'ceiling': ceiling},
             'because': because,
             'counsel': counsel,
             'context': context_id(self.first_goal_text),
@@ -634,6 +738,20 @@ class _Run:
             # instead would erase the pattern that produced it.
             self.trace.append((reason, drifting))
             self.trail.append('|'.join(sorted(norm(goal))) if goal else '')
+
+            # Recorded here because emit is the single exit every verdict passes through —
+            # putting it on the individual return paths is how the first version of the
+            # user-turn fix came to sit in dead code, written into one branch of two.
+            # Every step, not only the fires: a context whose history exists only for its
+            # bad moments cannot answer "did this ever work".
+            cid = context_id(goal)
+            if cid:
+                try:
+                    _, rep = remember_context(cid, goal, distance, reason, self.run_id, score)
+                    self.repetition = rep
+                    self.context = cid
+                except Exception:
+                    pass
 
             # GROUND FIRST, then readings. x = [x, f(x)] — the ground is x and the verdicts
             # are f(x), and a cycle in x is the thing the verdict was built to name. Checking
