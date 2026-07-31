@@ -157,6 +157,45 @@ def laserscore(goal, progress, distance=None, parent_goal=None) -> str | None:
     return base
 
 
+def context_id(goal) -> str | None:
+    """A stable name for the context a goal belongs to, or None if it cannot be spelled.
+
+    The token set a laserscore already renders IS a fingerprint — inflection collapsed,
+    order removed — which is exactly why 'build the parser' and 'building a parser' do not
+    score as drift. It was computed, printed once and discarded every step, so the harness
+    met the same context on Monday and Thursday with no way to know it had been there.
+
+    FNV-1a over the canonical token string: a function of the words alone, with no clock,
+    counter or insertion order in it, so the same context always names itself the same way
+    on any machine and in any process. Kept byte-identical to the server's contextId in
+    lasermind/mcp-server.mjs — the two are a shared vocabulary or they are nothing, since
+    an id that differs between implementations is worse than no id at all.
+    """
+    toks = '|'.join(sorted(norm(goal)))
+    if not toks:
+        return None
+    h = 0x811c9dc5
+    for ch in toks:
+        h ^= ord(ch)
+        # JS does `Math.imul(h, 0x01000193) >>> 0`; the mask is that `>>> 0`. Without it
+        # Python's unbounded ints keep growing and the two implementations diverge on the
+        # very first character.
+        h = (h * 0x01000193) & 0xFFFFFFFF
+    return 'ctx_' + _b36(h)
+
+
+def _b36(n):
+    """Base-36, matching JS Number.prototype.toString(36)."""
+    if n == 0:
+        return '0'
+    digits = '0123456789abcdefghijklmnopqrstuvwxyz'
+    out = ''
+    while n:
+        n, r = divmod(n, 36)
+        out = digits[r] + out
+    return out
+
+
 def _cycle(reasons):
     """The period of a repeating cycle at the tail of the trace, or 0.
 
@@ -353,11 +392,41 @@ class Verdict:
     # honest thing that can be said today: here is the number, and here is how much of it
     # you are taking on trust.
     anchored: float = 1.0
+    # How much of the goal just spelled is still the goal this run started with.
+    #
+    # Computed since the beginning and reported only on failure: it decides the goal-drift
+    # verdict, was interpolated into the advice STRING at the moment it crossed the floor,
+    # and was invisible at every other step. So the one number that says how far the
+    # SUBJECT has travelled could only be read once it had already gone too far.
+    #
+    # It answers a different question from Φ, which is why it deserves its own slot. Φ
+    # asks 'how far from ground', this asks 'still the same errand?'. A faithful goal can
+    # sit at high Φ while the work is genuinely hard, and a low-Φ reading can belong to a
+    # task nobody asked for. Defaulted so every existing Verdict(...) call keeps working.
+    goal_score: float = 1.0
+    # The context this verdict was taken in — stable across sessions and machines, so a
+    # run can be recognised as another attempt at something already tried. See context_id.
+    context: str = None
 
     @property
     def ground_score(self) -> float:
         """Φ as a bounded [0,1] confidence-in-ground reading (1.0 = fully grounded)."""
         return ground_score(self.phi)
+
+    @property
+    def scores(self) -> dict:
+        """Every reading this verdict carries, named — not one blended number.
+
+        A single figure hides which thing went wrong. A goal held faithfully through hard
+        work and a goal quietly swapped for an easier one sit at the same Φ, and the
+        difference between them is the only part worth knowing.
+        """
+        return {
+            'goal': round(self.goal_score, 2),
+            'ground': round(self.ground_score, 2),
+            'drift': round(self.phi, 2),
+            'evidence': round(self.anchored, 2),
+        }
 
     def __str__(self) -> str:
         mark = '⚑ drifting' if self.drifting else ('✓ grounded' if self.reason == 'grounded' else '· on track')
@@ -394,6 +463,121 @@ class _Run:
         self.corroborated = 0       # checks whose self-report was backed by observed work
         self.checks = 0
         self._osc = False        # already reported an oscillation for the current cycle
+
+    def _goal_score(self, goal):
+        """Overlap between the goal just spelled and the one this run started with."""
+        if not self.first_goal:
+            return 1.0
+        g = set(norm(goal))
+        union = g | self.first_goal
+        if not union:
+            return 1.0
+        return round(len(g & self.first_goal) / len(union), 2)
+
+    def phronesis(self):
+        """Judgment, beside the measurement. Returns a verdict on the WORK, not the state.
+
+        Φ is a distance; it is silent on whether the journey is worth making. An agent can
+        hold a perfect goal score, report advancing honestly, sit at Φ=0.05 — and be twelve
+        checks into work that has not moved the distance once. Every existing verdict calls
+        that 'advancing', because by its own definition it is.
+
+        This is deliberately willing to say abandon. An instrument that can only ever
+        counsel continuing is offering encouragement rather than judgment, and the agent
+        already supplies plenty of that itself.
+
+        Kept in step with the `phronesis` tool in lasermind/mcp-server.mjs: same verdicts,
+        same thresholds, same evidence. One instrument, two front doors.
+        """
+        dh, trace = self.dist_hist, self.trace
+        steps = len(trace)
+        if not self.ground or not steps:
+            return {'verdict': 'ungrounded',
+                    'because': 'No ground state — nothing has been measured yet.',
+                    'counsel': 'Ground a goal first; judgment needs a trace to judge.'}
+
+        started, now = (dh[0] if dh else None), (dh[-1] if dh else None)
+        closed = (started - now) if (started is not None and now is not None) else 0
+        pace = closed / steps if steps else 0
+        reasons = [r for r, _ in trace]
+        stalls = reasons.count('stalled')
+        goal_drifts = reasons.count('goal-drift')
+        regrounds = reasons.count('reground')
+        oscillations = reasons.count('oscillating')
+
+        flat = 0
+        for i in range(len(dh) - 1, 0, -1):
+            if dh[i] >= dh[i - 1]:
+                flat += 1
+            else:
+                break
+
+        gs = self._goal_score(self.ground.get('goal', '') if isinstance(self.ground, dict)
+                              else self.first_goal_text)
+        window = getattr(self.cal, 'stall_window', 4)
+
+        if steps >= 12 and closed <= 0:
+            verdict = 'abandon'
+            because = (f'{steps} checks. Distance began at {started} and stands at {now} — it has '
+                       f'never once improved. Nothing tried so far has moved this.')
+            counsel = ('Stop. Either the approach is wrong or the goal is not reachable as stated. '
+                       'Say plainly what is blocking it rather than taking a thirteenth run at it.')
+        elif goal_drifts >= 3 and goal_drifts > regrounds:
+            verdict = 'wrong-problem'
+            because = (f'The goal has failed its overlap check {goal_drifts} times against only '
+                       f'{regrounds} legitimate re-grounds. The subject keeps moving while the '
+                       f'ground stays put.')
+            counsel = ('You are not solving what you set out to solve. Either re-ground to the goal '
+                       'you actually have now, or return to the original and finish it.')
+        elif oscillations and pace <= 0:
+            # `pace <= 0` is load-bearing, and it was found by dogfooding rather than
+            # reasoning: this judgment fired on a run whose distance had gone 6→4→3→2
+            # monotonically. The cycle detector was reading the VERDICT sequence, which
+            # repeats naturally when a healthy run is re-grounded a few times, and a
+            # repeating verdict over falling distance is a rhythm, not a loop. Circling
+            # means coming back to the same place; a run that is measurably closer than it
+            # was has not come back anywhere.
+            verdict = 'wrong-problem'
+            because = ('A repeating cycle was detected and the distance is not falling — you have '
+                       'returned to the same place after being told to return.')
+            counsel = 'Returning again will land you here a third time. Change the approach, not the position.'
+        elif now is not None and now >= 6 and flat >= window:
+            verdict = 'narrow'
+            because = (f'Distance has sat at {", ".join(str(d) for d in dh[-flat:])} for {flat} checks '
+                       f'without falling, and {now} is still far from done.')
+            counsel = ('The goal is too large to close in one move. Name the smallest piece that would '
+                       'genuinely reduce the distance and make that the goal.')
+        elif now is not None and now <= 2 and closed > 0:
+            verdict = 'finish'
+            because = f'Distance is {now}, down from {started} over {steps} checks.'
+            counsel = 'Close it out. Do not add scope, refactor, or polish — finish what was asked and stop.'
+        elif stalls and pace <= 0:
+            verdict = 'narrow'
+            because = (f'{stalls} stall{"s" if stalls > 1 else ""} recorded and net distance closed is '
+                       f'{closed} over {steps} checks.')
+            counsel = ('Motion without progress. Pick one concrete sub-result you can actually finish, '
+                       'and make that the goal.')
+        else:
+            verdict = 'continue'
+            because = (f'Distance {started} → {now} over {steps} checks ({pace:.2f}/check), '
+                       f'goal held at {gs}.')
+            counsel = ('Working. Keep the goal fixed and keep going.' if pace > 0 else
+                       'Holding ground but not closing yet. If the next two checks do not move the '
+                       'distance, narrow the goal.')
+
+        return {
+            'verdict': verdict,
+            # No 'drift' here: the SDK's trace holds (reason, drifting) and never carried Φ,
+            # so a drift score would have to be invented rather than read. Φ is on the
+            # Verdict, which is where it was actually measured.
+            'scores': {'goal': gs,
+                       'closure': round(closed / started, 2) if started else (1 if now == 0 else 0),
+                       'pace': round(pace, 2),
+                       'evidence': round(self._anchor(), 2)},
+            'because': because,
+            'counsel': counsel,
+            'context': context_id(self.first_goal_text),
+        }
 
     def _anchor(self):
         """What fraction of Φ's weight is anchored outside the agent's self-report.
@@ -462,7 +646,8 @@ class _Run:
                                self._anchor())
             if not p:
                 self._osc = False
-            return Verdict(drifting, reason, round(phi, 2), advice, why, score, self._anchor())
+            return Verdict(drifting, reason, round(phi, 2), advice, why, score, self._anchor(),
+                           self._goal_score(goal), context_id(goal))
 
         goal = str(goal or '').strip()
         if not goal or progress not in _PROGRESS:
@@ -829,6 +1014,16 @@ class Harness:
         if r and r.get('status') == 'decided':
             return {'decision': r.get('decision'), 'note': r.get('note')}
         return None
+
+    def phronesis(self) -> dict:
+        """Judgment on the work, beside the measurement of the state.
+
+        `check` answers how far you are from ground. This answers whether the work is
+        worth continuing, and says why — finish, continue, narrow, verify, wrong-problem
+        or abandon, with the evidence it judged on. Mirrors the `phronesis` MCP tool; the
+        two are one instrument with two front doors.
+        """
+        return self._run.phronesis()
 
     def reset(self) -> None:
         self._run = _Run(self.similarity, self.calibration)   # new task run; the audit ledger keeps accumulating
