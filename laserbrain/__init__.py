@@ -21,10 +21,11 @@ instrument); the multi-agent dialogue + recursion teams are the prototype extens
 """
 from __future__ import annotations
 from dataclasses import dataclass
-import datetime as _dt, hashlib, json, re
+import datetime as _dt, hashlib, json, os, re, time as _time, uuid as _uuid
 from pathlib import Path as _Path
 
-__all__ = ['Harness', 'Team', 'Verdict', 'PRESETS', 'norm', 'laserscore', 'verify_audit', 'ground_score', 'MAX_DEPTH']
+__all__ = ['Harness', 'Team', 'Verdict', 'PRESETS', 'norm', 'laserscore', 'context_id',
+           'verify_audit', 'ground_score', 'MAX_DEPTH']
 __version__ = '0.31.0'
 MAX_DEPTH = 50   # nesting deeper than this is a drift signal, not a decomposition
 API_DEFAULT = 'https://laserbrain-mcp.degibug.workers.dev'
@@ -210,6 +211,56 @@ def _read_contexts():
         return {}
 
 
+def _with_context_lock(fn, timeout=2.0):
+    """Serialise read-modify-write on contexts.json across processes AND languages.
+
+    Measured before this existed: eight concurrent writers recording five checks each
+    stored 36 of 40. The file never corrupted — small writes land atomically enough for
+    that — but updates were silently lost, because every writer read the whole map,
+    edited its own entry, and wrote the whole map back over everyone else's.
+
+    Silent undercounting is worse here than an error would be. `repetition` is what
+    raises the `repeating` verdict, so a dropped write does not merely lose a statistic,
+    it suppresses a judgment that was true.
+
+    O_CREAT|O_EXCL is atomic on POSIX and has the same semantics as Node's 'wx' flag,
+    which is what lets the server and the package take the same lock. A lock older than
+    ten seconds is stolen: a crashed writer must not wedge the store forever. On timeout
+    the write proceeds unlocked — a possibly-lost update is strictly better than dropping
+    the write with certainty.
+    """
+    lock = CONTEXTS.with_name(CONTEXTS.name + '.lock')
+    deadline = _time.monotonic() + timeout
+    held = False
+    while True:
+        try:
+            CONTEXTS.parent.mkdir(parents=True, exist_ok=True)
+            fd = os.open(str(lock), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            os.close(fd)
+            held = True
+            break
+        except FileExistsError:
+            try:
+                if _time.time() - lock.stat().st_mtime > 10:
+                    lock.unlink()
+                    continue
+            except Exception:
+                pass
+            if _time.monotonic() > deadline:
+                break
+            _time.sleep(0.005)
+        except Exception:
+            break
+    try:
+        return fn()
+    finally:
+        if held:
+            try:
+                lock.unlink()
+            except Exception:
+                pass
+
+
 def remember_context(cid, goal, distance, reason, run=None, score=None):
     """Record one sighting of a context; return what was known BEFORE it.
 
@@ -224,6 +275,12 @@ def remember_context(cid, goal, distance, reason, run=None, score=None):
     """
     if not cid:
         return None, 0
+    # The read and the write are one critical section: reading outside the lock is what
+    # made the lost updates possible in the first place.
+    return _with_context_lock(lambda: _remember_context_locked(cid, goal, distance, reason, run, score))
+
+
+def _remember_context_locked(cid, goal, distance, reason, run, score):
     all_ = _read_contexts()
     prior = dict(all_[cid]) if cid in all_ else None
     now = _dt.datetime.now(_dt.timezone.utc).isoformat(timespec='seconds')
@@ -237,9 +294,23 @@ def remember_context(cid, goal, distance, reason, run=None, score=None):
     e['best_distance'] = d if e.get('best_distance') is None else min(e['best_distance'], d)
     e.setdefault('outcomes', {})
     e['outcomes'][reason] = e['outcomes'].get(reason, 0) + 1
+    # Sessions are CAPPED, with the true total kept alongside.
+    #
+    # The list was unbounded and the whole map is read and rewritten on every check, so an
+    # ever-growing array does not merely take disk — it makes every future check slower,
+    # forever, on a file a published package writes into every user's home directory. One
+    # context in the real store had already reached 88 session ids.
+    #
+    # The list is only needed to recognise the CURRENT run and avoid double-counting it;
+    # `session_count` carries the history that judgment actually reads. Twenty is far more
+    # than the dedup needs and keeps the record legible.
     e.setdefault('sessions', [])
+    e.setdefault('session_count', len(e['sessions']))
     if run and run not in e['sessions']:
         e['sessions'].append(run)
+        e['session_count'] = e.get('session_count', 0) + 1
+        if len(e['sessions']) > 20:
+            e['sessions'] = e['sessions'][-20:]
     e.setdefault('spellings', {})
     repetition = 0
     if score:
@@ -524,7 +595,11 @@ class _Run:
         # Identity of this run, so a context can count the SESSIONS it has been opened in
         # and not merely the checks. Three attempts across three sessions is a different
         # fact from thirty checks in one, and only the first justifies 'abandon'.
-        self.run_id = _b36(int(_dt.datetime.now(_dt.timezone.utc).timestamp() * 1000))
+        # Random, not a timestamp. A millisecond clock collides: thirty runs created in a
+        # loop produced only fourteen distinct ids, so a context opened thirty times
+        # reported thirteen and the sentence "opened in N earlier sessions" was simply
+        # false. The server has always used randomUUID here; this matches it.
+        self.run_id = _uuid.uuid4().hex[:12]
         self.repetition = 0      # times the current spelling has been written in its context
         self.context = None
 
@@ -590,7 +665,12 @@ class _Run:
         spellings = (known or {}).get('spellings') or {}
         repetition = max(spellings.values()) if spellings else 0
         ceiling = (known or {}).get('best_distance')
-        prior_runs = len([s for s in (known or {}).get('sessions', []) if s != self.run_id])
+        # From session_count, not from the capped list: reading len(sessions) would have
+        # quietly stopped counting past twenty and weakened `abandon` exactly on the
+        # longest-running contexts, which are the ones it exists to catch.
+        _sess = (known or {}).get('sessions', [])
+        _total = (known or {}).get('session_count', len(_sess))
+        prior_runs = max(0, _total - (1 if self.run_id in _sess else 0))
 
         # Three checks before any hard verdict. Replaying the 141-run corpus, several
         # two-check runs were handed 'narrow' and 'wrong-problem' on a trace with almost
