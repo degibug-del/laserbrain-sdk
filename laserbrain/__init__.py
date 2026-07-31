@@ -516,13 +516,18 @@ class _Run:
                               else self.first_goal_text)
         window = getattr(self.cal, 'stall_window', 4)
 
-        if steps >= 12 and closed <= 0:
+        # Three checks before any hard verdict. Replaying the 141-run corpus, several
+        # two-check runs were handed 'narrow' and 'wrong-problem' on a trace with almost
+        # nothing in it. Judgment needs evidence; two readings is a rumour.
+        judged = steps >= 3
+
+        if judged and steps >= 12 and closed <= 0:
             verdict = 'abandon'
             because = (f'{steps} checks. Distance began at {started} and stands at {now} — it has '
                        f'never once improved. Nothing tried so far has moved this.')
             counsel = ('Stop. Either the approach is wrong or the goal is not reachable as stated. '
                        'Say plainly what is blocking it rather than taking a thirteenth run at it.')
-        elif goal_drifts >= 3 and goal_drifts > regrounds:
+        elif judged and goal_drifts >= 3 and goal_drifts > regrounds and pace <= 0:
             verdict = 'wrong-problem'
             because = (f'The goal has failed its overlap check {goal_drifts} times against only '
                        f'{regrounds} legitimate re-grounds. The subject keeps moving while the '
@@ -551,10 +556,15 @@ class _Run:
             verdict = 'finish'
             because = f'Distance is {now}, down from {started} over {steps} checks.'
             counsel = 'Close it out. Do not add scope, refactor, or polish — finish what was asked and stop.'
-        elif stalls and pace <= 0:
+        elif judged and stalls and pace <= 0 and now is not None and now >= 4:
+            # `now >= 4` came out of the corpus: this branch was telling runs sitting at
+            # distance 1 or 2 to break the goal into smaller pieces. At distance 1 you are
+            # nearly there and the counsel is simply wrong — narrowing a goal that is one
+            # step from done adds ceremony, not progress. Splitting is for work too large
+            # to close, which is a statement about the distance remaining, not the stall.
             verdict = 'narrow'
             because = (f'{stalls} stall{"s" if stalls > 1 else ""} recorded and net distance closed is '
-                       f'{closed} over {steps} checks.')
+                       f'{closed} over {steps} checks, still at {now}.')
             counsel = ('Motion without progress. Pick one concrete sub-result you can actually finish, '
                        'and make that the goal.')
         else:
