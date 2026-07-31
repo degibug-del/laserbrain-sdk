@@ -76,6 +76,87 @@ Reasons: `advancing`, `grounded`, `goal-drift`, `stalled`, `self-report:stuck/ci
 `ungrammatical`. Want a bounded reading instead of a raw distance? `v.ground_score`
 maps Φ to `[0,1]` — `1.0` fully grounded, falling as it drifts (`1/(1+4·Φ)`).
 
+## Several readings, not one number
+
+A single figure hides which thing went wrong. A goal held faithfully through hard work
+and a goal quietly swapped for an easier one sit at the *same* Φ, and the difference is
+the only part worth knowing — so each reading gets its own slot:
+
+```python
+v = hz.check(goal="build the JSON parser", progress="advancing", distance=6)
+v.scores      # {'goal': 1.0, 'ground': 0.81, 'drift': 0.06, 'evidence': 0.5}
+v.goal_score  # 1.0 — how much of this goal is still the goal you started with
+v.context     # 'ctx_1t61li9' — a stable name for the work itself
+```
+
+`goal_score` answers *still the same errand?* where Φ answers *how far from ground?* They
+diverge: a faithful goal can sit at high Φ while the work is genuinely hard, and a low-Φ
+reading can belong to a task nobody asked for.
+
+## Judgment — is the work worth continuing?
+
+The check measures. It is silent on the question that actually decides what to do next.
+An agent can hold a perfect goal score, report `advancing` honestly, sit at Φ=0.05, and
+be twelve checks into work that has not moved the distance once — and every verdict above
+calls that *advancing*, because by its own definition it is.
+
+```python
+hz.phronesis()
+# {'verdict': 'abandon',
+#  'scores': {'goal': 1.0, 'closure': 0.0, 'pace': 0.0, 'evidence': 0.5,
+#             'recurrence': 0, 'repetition': 12, 'ceiling': 7},
+#  'because': '12 checks. Distance began at 7 and stands at 7 — it has never once
+#              improved. Nothing tried so far has moved this.',
+#  'counsel': 'Stop. Either the approach is wrong or the goal is not reachable as
+#              stated. Say plainly what is blocking it rather than taking a
+#              thirteenth run at it.'}
+```
+
+Verdicts: `finish`, `continue`, `narrow`, `verify`, `repeating`, `wrong-problem`,
+`abandon`. It is deliberately willing to say **abandon** — an instrument that can only
+ever counsel continuing is offering encouragement, not judgment, and the agent already
+supplies plenty of that itself.
+
+Thresholds come from replaying the recorded drift corpus, not from taste. Over 146 real
+runs at the time of writing, the verdicts land `continue` 52.7%, `finish` 41.1%, and the
+hard ones on 6.2% between them — selective, and deliberately not inert. Over the MCP
+server the judgment is attached to the check itself whenever it is one that changes what
+to do next: a tool you have to *remember* to call is a tool that does not run.
+
+### Contexts — the same work, met twice
+
+The token set a laserscore renders is already a fingerprint: inflection collapsed, order
+dropped, which is why *build the parser* and *building a parser* do not score as drift.
+Naming it and keeping it gives the instrument memory across sessions.
+
+```python
+from laserbrain import context_id
+context_id("build the parser")     # 'ctx_1sax889'
+context_id("building a parser")    # 'ctx_1sax889'  — same work
+```
+
+A context is the *equivalence class*; a laserscore is one member of it. That coarseness
+is the feature — you cannot ask *have I been here before?* with an identifier that
+changes every time the distance ticks. Two readings fall out of holding both at once, and
+neither mechanism gives them alone:
+
+- **`repetition`** — how many times this *exact* state has been written here. A stronger
+  claim than `stalled`: distance sits flat through legitimate sub-work, but an identical
+  laserscore means goal, progress *and* distance are all unchanged. Not failing to get
+  closer — writing the same sentence again.
+- **`ceiling`** and **`recurrence`** — the closest this work has *ever* come, and how many
+  earlier sessions attempted it. A run watching itself sees one attempt and can never
+  know it is the fourth.
+
+### What lands on disk
+
+Contexts persist to `~/.config/laserbrain/contexts.json`, alongside the drift log already
+written to that directory. It holds **stemmed goal tokens** (`["build", "pars"]`),
+laserscores, timestamps and counts — not raw prose, but enough to reconstruct roughly
+what you were working on. Local only, never transmitted. Delete the file to forget
+everything; the harness rebuilds it and loses only its history. Writes are taken under a
+lockfile so the MCP server and this package can share one store without losing counts.
+
 ## The grammar — bring your own
 
 The theorem blesses *a* fixed reference, never a particular vocabulary. The default is

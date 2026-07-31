@@ -1,5 +1,74 @@
 # Changelog
 
+## 0.31.0 — 2026-07-31
+
+**The instrument could say how far you were from ground and never whether the journey was
+worth making. `phronesis()` answers the second question — and the four defects found
+auditing it before release were all in code that already passed its tests.**
+
+An agent can hold a perfect goal score, report `advancing` honestly, sit at Φ=0.05, and
+be twelve checks into work that has not moved the distance once. Every verdict in the
+harness calls that *advancing*, because by its own definition it is. `phronesis()` reads
+the same trace and returns `finish`, `continue`, `narrow`, `verify`, `repeating`,
+`wrong-problem` or `abandon`, with the evidence it judged on. It is deliberately willing
+to say abandon; an instrument that can only ever counsel continuing is offering
+encouragement, not judgment.
+
+`goal_score` is now on every `Verdict`, with `scores` beside it. It has been computed
+since the beginning and reported only on failure — interpolated into the advice *string*
+at the moment it crossed the floor, invisible at every other step. The one number saying
+how far the SUBJECT had travelled could only be read once it had already gone too far.
+
+`context_id` names the work itself. The token set a laserscore renders was already a
+fingerprint — it is why "build the parser" and "building a parser" do not score as drift
+— and it was computed, printed once and discarded every step. Stored, it gives the
+instrument memory across sessions, which is what judgment needs and measurement does not:
+Φ can say you are 0.3 from ground; only history can say you have opened this context four
+times and closed it none. Byte-identical to the server's `contextId`, verified across
+processes and languages.
+
+Holding both at once yields `repetition`, which neither gives alone: how many times this
+*exact* state has been written in this context. A stronger claim than `stalled` — distance
+sits flat through legitimate sub-work, but an identical laserscore means goal, progress
+AND distance are all unchanged. Threshold from the corpus, not taste: ≥2 fires on 9.7% of
+382 contexts and is noise, ≥3 on 2.6%.
+
+**Calibration.** The verdicts first shipped with thresholds reasoned out and never tested,
+which is not the standard every other rule here is held to. Replaying all 141 recorded
+runs found three defects reasoning had missed: `wrong-problem` fired on a run that closed
+5→1, `narrow` told runs sitting at distance 1 to break the goal into smaller pieces, and
+two-check runs were handed hard verdicts on a trace with nothing in it. After: hard
+verdicts landing on runs that closed ≥2 distance went from several to zero.
+
+**Pre-publish audit.** Four defects in the context store, each found by measuring rather
+than reading:
+
+- Eight concurrent writers recording five checks each stored **36 of 40**. Every writer
+  read the whole map, edited its entry and wrote it back over everyone else's. Silent
+  undercounting is the worst failure available here — `repetition` raises the `repeating`
+  verdict, so a dropped write suppresses a judgment that was true. Now taken under an
+  `O_CREAT|O_EXCL` lockfile, the same primitive as Node's `wx`, so the package and the MCP
+  server exclude *each other* rather than each locking alone. 40/40 with eight Python
+  writers, and again with four Python and four Node racing on one file.
+- The sessions list grew without bound, and the whole map is read and rewritten on every
+  check — so it cost time on every future check, permanently, in a file written into every
+  user's home directory. One context had already reached 88 ids. Capped at 20, with the
+  true total in `session_count`.
+- Capping would have broken `abandon`: `prior_runs` read `len(sessions)` and would have
+  quietly stopped counting past twenty, weakening the verdict precisely on the
+  longest-running contexts it exists to catch.
+- `run_id` was a millisecond timestamp, so thirty runs built in a loop produced fourteen
+  distinct ids — a context opened thirty times reported thirteen, and "opened in N earlier
+  sessions" was simply false. `uuid4` now, matching the server.
+
+**What lands on disk.** Contexts persist to `~/.config/laserbrain/contexts.json`, beside
+the drift log already written there. Stemmed goal tokens, laserscores, timestamps and
+counts — not raw prose, but enough to reconstruct roughly what you were working on. Local
+only, never transmitted; delete the file to forget everything.
+
+`context_id` joins `__all__`, which `laserscore` already was — the same tier of concept,
+and one being public while the other was not was an accident.
+
 ## 0.30.0 — 2026-07-30
 
 **The store reaches every surface now, and the gate that's supposed to prove the tests
