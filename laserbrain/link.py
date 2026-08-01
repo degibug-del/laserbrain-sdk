@@ -1,6 +1,6 @@
 """link — many agents, one shared log.
 
-This shipped as `tandem` and was described as a two-agent channel: Claude and Grok, one
+This shipped as `tandem` and was described as a two-agent channel: two named agents, one
 JSONL between them. The record format was never two-agent — every line already carries
 an `agent` field — so the limit lived in the documentation and the tool names, not in the
 data. Renamed and generalised 2026-07-27 on Diego's instruction: link has to be multiple
@@ -10,7 +10,7 @@ agents.
 
     link_write('parser done, handing over the benchmark', kind='handoff')
     link_agents()          # everyone who has spoken on this link
-    link_read(agent='grok', limit=5)
+    link_read(agent='builder', limit=5)
 
 The link carries DATA about the work. The field carries the weather. The harness carries
 the goal. Three different shared things, and conflating them is the mistake this project
@@ -48,7 +48,7 @@ HUB = os.environ.get('LASERBRAIN_HUB', 'https://phronesis.world/api/laserbrain')
 
 def _agent_name() -> str:
     """Who this process is. Explicit beats guessed, so the env var wins."""
-    return os.environ.get('LASERBRAIN_AGENT') or os.environ.get('CLAUDE_AGENT') or 'unknown'
+    return os.environ.get('LASERBRAIN_AGENT') or 'unknown'
 
 
 def link_whoami() -> dict:

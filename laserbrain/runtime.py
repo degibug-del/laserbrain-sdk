@@ -1,6 +1,6 @@
 """runtime.py — attach the harness to a runtime instead of to your code.
 
-The Claude Code hook proved the idea and then proved its cost: because a hook runs against
+A hook-based host proved the idea and then proved its cost: because a hook runs against
 whatever python3 is on PATH, it could not import laserbrain, so the progress rules were
 copied into it and pinned together by a test. That works for one runtime. It does not
 scale to five, and a drift-detection product maintaining five copies of its drift rules is
@@ -19,7 +19,7 @@ shared.
         print(s.nudge())           # inject into the agent's context
 
 Any runtime with a tool-call boundary can drive this in about ten lines; see
-`from_claude_code`, `from_grok`, and `from_openai_agents` for shapes, and `normalise`
+`from_hook` for any host payload, `from_openai_agents` for that SDK, and `normalise`
 for the contract they all meet.
 """
 import json, os, pathlib, datetime, re
@@ -27,6 +27,10 @@ import json, os, pathlib, datetime, re
 from .observe import Observer
 
 NUDGE_AFTER = 8          # steps without a SPELLED check before the reminder fires
+# NECESSARY, and the only brand left in this package. The path holds the live corpus —
+# 1000+ readings and every session record — so renaming it would orphan all of it for a
+# cosmetic gain. It is a location, not a claim about who may use it: every agent on the
+# machine writes here, which is the point of a shared corpus.
 DEFAULT_DIR = pathlib.Path.home() / '.claude' / 'laserbrain'
 
 # Internal dispatchers that wrap a real tool name in their arguments.
@@ -38,21 +42,34 @@ _WRAPPER_TOOLS = frozenset({
 def agent_of(ev=None):
     """Which agent is writing this session — for multi-agent corpus splits.
 
-    Prefers LASERBRAIN_AGENT (set in each client's MCP env), then runner env, then
-    weak hints on the event. Never invents claude/grok from thin air.
+    LASERBRAIN_AGENT is the answer, and in practice the only one used: every hook
+    command in every host config sets it explicitly. The fallback exists for a host
+    that has not been wired up yet.
+
+    NO VENDOR IS NAMED HERE. This used to enumerate two hosts' session variables by name
+    and return the matching brand, and to infer one vendor from
+    camelCase event keys and another from snake_case. Both were wrong the same way: an
+    instrument shipping a list of which agents exist must be edited to measure a new
+    one, and the list is a claim about the world that goes stale. The name is derived
+    from whatever <HOST>_SESSION_ID is present, so a host this file has never heard of
+    identifies itself.
+
+    A SHAPE IS NOT AN IDENTITY. camelCase versus snake_case says how a payload is
+    spelled, not who sent it, and two hosts can share a convention. Guessing a vendor
+    from spelling produced a name that looked measured and was not, so the shape hints
+    are gone and an unidentifiable agent is 'unknown' — which is true, and which the
+    corpus already reports as its own category.
     """
     env = (os.environ.get('LASERBRAIN_AGENT') or '').strip().lower()
     if env:
         return env
-    if os.environ.get('GROK_SESSION_ID') or os.environ.get('GROK_HOOK_EVENT'):
-        return 'grok'
-    if os.environ.get('CLAUDE_SESSION_ID'):
-        return 'claude'
-    if isinstance(ev, dict):
-        if ev.get('sessionId') is not None or ev.get('toolName') is not None:
-            return 'grok'
-        if ev.get('session_id') is not None or ev.get('tool_name') is not None:
-            return 'claude'
+    # NO INFERENCE. Deriving the name from a *_SESSION_ID variable was tried and is
+    # wrong for the same reason session_id_of stopped doing it: this machine carries
+    # a second variable ending _SESSION_ID for a browser pane, so the derived name would
+    # have been that pane's — a confident answer nobody measured. Every host config
+    # sets LASERBRAIN_AGENT explicitly (10 of 10 hook commands across both hosts here),
+    # so the fallback is not carrying weight, and 'unknown' is a true answer the corpus
+    # already reports as its own category.
     return 'unknown'
 
 
@@ -82,7 +99,7 @@ def unwrap_tool_args(tool, args):
 
       1. toolName is the dispatcher (`use_tool`); toolInput holds
          {tool_name, tool_input: real_args}.
-      2. Grok rewrites toolName to `server__tool` for matchers (hooks.md) but
+      2. some hosts rewrite toolName to `server__tool` for matchers, but
          still leaves toolInput as the outer envelope. Peeling only when tool
          is in _WRAPPER_TOOLS left every check_state with empty goals
          (corpus 2026-07-25: goal='', progress='', distance=None while checks
@@ -124,10 +141,10 @@ def unwrap_tool_args(tool, args):
 
 
 def session_id_of(ev):
-    """session id from a hook event or the runner's env (Grok / Claude).
+    """session id from a hook event or from any host's <HOST>_SESSION_ID.
 
-    The last resort is NOT the literal 'unknown'. On 2026-07-25 a Claude session and a
-    Grok session ran in tandem and both fell back to it: 50 steps landed in one file with
+    The last resort is NOT the literal 'unknown'. On 2026-07-25 two agents ran in tandem
+    and both fell back to it: 50 steps landed in one file with
     two runs interleaved and catches attributed to whichever agent happened to be next.
     A merged session is worse than a missing one — dogfood scores it as though it were a
     single run and reports a confident wrong answer.
@@ -138,9 +155,20 @@ def session_id_of(ev):
     """
     if not isinstance(ev, dict):
         ev = {}
+    # EXPLICIT, OR THE PARENT PID. Nothing in between.
+    #
+    # This enumerated two hosts' session variables by name, which meant a third host
+    # fell through silently. The obvious repair — scan for any *_SESSION_ID — is worse,
+    # and provably so: this machine carries two variables that both end _SESSION_ID, one
+    # for the agent and one for a browser pane. Any rule for picking between them
+    # by NAME is a guess, and the longest-first rule picked the browser. A wrong session
+    # id is worse than none: it merges runs and misattributes catches, which is the exact
+    # failure the parent-pid fallback below was written for.
+    #
+    # So a host that wants its session identity honoured sets LASERBRAIN_SESSION_ID, the
+    # same way it already sets LASERBRAIN_AGENT. Declared, not inferred.
     explicit = (ev.get('session_id') or ev.get('sessionId')
-                or os.environ.get('GROK_SESSION_ID')
-                or os.environ.get('CLAUDE_SESSION_ID'))
+                or os.environ.get('LASERBRAIN_SESSION_ID'))
     if explicit:
         return str(explicit)
     return f'unattributed-{os.getppid()}'
@@ -152,7 +180,7 @@ _PROMPT_WRAPPERS = ('user_query', 'user_prompt', 'query', 'prompt')
 def clean_prompt(text):
     """Unwrap a runtime's prompt envelope.
 
-    Grok delivers prompts as '<user_query>\n/hello\n</user_query>'. Stored raw, the
+    Some hosts deliver prompts as '<user_query>\n/hello\n</user_query>'. Stored raw, the
     ground goal becomes markup and every later goal comparison is made against tags.
     """
     t = str(text or '').strip()
@@ -211,7 +239,7 @@ def normalise(ev):
     adapter has to care about; returning None for kind means "ignore this event", which
     is the right answer for most of what a runtime emits.
 
-    Accepts Claude Code snake_case and Grok Build camelCase side by side.
+    Accepts snake_case and camelCase payloads side by side, whichever host sent them.
     """
     if not isinstance(ev, dict):
         return (None, '', {}, True, '')
@@ -438,7 +466,7 @@ class Session:
     def coverage_warning(self):
         """Nudge text whenever coverage has lapsed (not only on the modulo edge).
 
-        Used by Grok Stop hooks: PostToolUse stdout is ignored there, so the only
+        Used by Stop hooks on hosts that ignore PostToolUse stdout, where the only
         injection point that reaches the model is a stop-gate reason.
         """
         since = self.steps_since_check()
@@ -571,23 +599,28 @@ def verdict_of(text):
             'phi': found.get('phi')}
 
 
-def from_claude_code(ev, directory=None):
-    """Claude Code hook payload (PostToolUse / UserPromptSubmit) on stdin."""
-    s = Session(session_id_of(ev), directory=directory)
-    if not s.d.get('agent') or s.d.get('agent') == 'unknown':
-        s.d['agent'] = agent_of(ev)
-    return s.feed(ev)
+def from_hook(ev, directory=None):
+    """A hook payload from any host, on stdin.
 
+    There used to be two of these — from_claude_code and from_grok — and they were
+    byte-identical apart from the docstring. The spelling difference they appeared to
+    handle (snake_case vs camelCase, tool_name vs toolName) is absorbed by
+    session_id_of and normalise, which read both. So the pair was never two adapters;
+    it was one function published under two brand names, and a third host would have
+    meant a third copy of the same four lines.
 
-def from_grok(ev, directory=None):
-    """Grok Build hook payload (camelCase: sessionId, toolName, toolInput, toolResult).
-
-    Same session directory as Claude so tandem runs share one coverage corpus.
+    Both old names remain as aliases below. Nothing that imports them breaks.
     """
     s = Session(session_id_of(ev), directory=directory)
     if not s.d.get('agent') or s.d.get('agent') == 'unknown':
         s.d['agent'] = agent_of(ev)
     return s.feed(ev)
+
+
+#: Kept so existing hooks and integrations import what they always did. They are the
+#: same function; the names are history, not behaviour.
+from_claude_code = from_hook
+from_grok = from_hook
 
 
 def from_openai_agents(run_id, name, arguments, error=None, directory=None):

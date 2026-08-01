@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """test_hook_parity.py — the hook's copy of the progress rules must match observe.py's.
 
-The Claude Code hook cannot import laserbrain: it runs against whatever python3 is on
+A hook cannot import laserbrain: it runs against whatever python3 is on
 PATH, and that interpreter has the PUBLISHED version from PyPI while observe.py lives in
 the working tree. An import there fails on version skew, inside a process whose entire
 job is to never break. So the rules are duplicated — deliberately, and dangerously.

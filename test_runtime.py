@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """test_runtime.py — one implementation of the runtime attachment, many event shapes.
 
-The Claude Code hook had to duplicate the progress rules because it could not import
+A hook-based host had to duplicate the progress rules because it could not import
 laserbrain, and that duplication needed its own parity test to stay safe. This module
 exists so the next four runtimes do not each add a copy. The tests below check the two
 things that makes true: different event SHAPES normalise to the same contract, and the
@@ -26,33 +26,33 @@ cc = {'tool_name': 'Bash', 'tool_input': {'command': 'x'}, 'tool_response': {'ex
 oa = {'name': 'Bash', 'arguments': {'command': 'x'}, 'output': {'error': 'boom'}}
 gk = {'toolName': 'run_terminal_command', 'toolInput': {'command': 'x'},
       'toolResult': {'exit_code': 1}, 'sessionId': 'g1'}
-show('Claude Code shape normalises', normalise(cc)[:4] == ('tool', 'Bash', {'command': 'x'}, False))
+show('snake_case shape normalises', normalise(cc)[:4] == ('tool', 'Bash', {'command': 'x'}, False))
 show('OpenAI-Agents shape normalises to the same thing', normalise(oa)[:4] == ('tool', 'Bash', {'command': 'x'}, False))
-show('Grok camelCase shape normalises', normalise(gk)[:4] == ('tool', 'run_terminal_command', {'command': 'x'}, False))
+show('camelCase shape normalises', normalise(gk)[:4] == ('tool', 'run_terminal_command', {'command': 'x'}, False))
 show('a prompt is recognised', normalise({'prompt': 'ship it'})[0] == 'prompt')
 show('a check is recognised', normalise({'tool_name': 'mcp__laserbrain__check_state'})[0] == 'check')
-show('Grok MCP check is recognised', normalise({'toolName': 'laserbrain__check_state',
+show('a wrapped MCP check is recognised', normalise({'toolName': 'laserbrain__check_state',
       'toolInput': {'goal': 'g', 'progress': 'advancing', 'distance': 3}})[0] == 'check')
 show('use_tool wrapper unwraps to check', normalise({
     'toolName': 'use_tool',
     'toolInput': {'tool_name': 'laserbrain__check_state',
                   'tool_input': {'goal': 'g', 'progress': 'advancing', 'distance': 1}},
 })[0] == 'check')
-# Grok rewrites toolName to server__tool but leaves toolInput nested (empty-goal bug).
+# Some hosts rewrite toolName to server__tool but leave toolInput nested (empty-goal bug).
 _env = normalise({
     'toolName': 'laserbrain__check_state',
     'toolInput': {'tool_name': 'laserbrain__check_state',
                   'tool_input': {'goal': 'ship it', 'progress': 'advancing', 'distance': 2}},
     'sessionId': 'env1',
 })
-show('Grok name-unwrapped envelope still peels args',
+show('a name-unwrapped envelope still peels args',
      _env[0] == 'check' and _env[2].get('goal') == 'ship it', _env[2])
 _envc = normalise({
     'toolName': 'laserbrain__check_state',
     'toolInput': {'toolName': 'laserbrain__check_state',
                   'toolInput': {'goal': 'ship it', 'progress': 'stuck', 'distance': 4}},
 })
-show('Grok camelCase nested envelope peels',
+show('a camelCase nested envelope peels',
      _envc[2].get('goal') == 'ship it' and _envc[2].get('progress') == 'stuck', _envc[2])
 _str = normalise({
     'toolName': 'laserbrain__check_state',
@@ -110,7 +110,7 @@ with tempfile.TemporaryDirectory() as d:
     from_claude_code({'session_id': 't4', 'tool_name': 'Bash',
                       'tool_input': {'command': 'q'}, 'tool_response': {'exit_code': 2}}, directory=d)
     t4 = json.loads((pathlib.Path(d) / 't4.json').read_text())
-    show('the Claude Code adapter records goal, step and catch',
+    show('the hook adapter records goal, step and catch',
          t4['goal'] == 'ship it' and t4['steps'] == 1 and len(t4['catches']) == 1)
 
     from_openai_agents('t5', 'search', {'q': 'x'}, error='rate limited', directory=d)

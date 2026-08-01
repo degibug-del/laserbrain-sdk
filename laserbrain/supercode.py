@@ -3,8 +3,8 @@
     from laserbrain import Supercode
 
     sc = Supercode(goal='ship the parser and the benchmark')
-    sc.observe('claude', goal='write a JSON parser', progress='advancing', distance=4)
-    sc.observe('grok',   goal='benchmark the cache',  progress='stuck',     distance=7)
+    sc.observe('writer',  goal='write a JSON parser', progress='advancing', distance=4)
+    sc.observe('builder', goal='benchmark the cache',  progress='stuck',     distance=7)
     print(sc.report())        # what every agent is doing, scored
     sc.publish()              # the same findings, written into the link
 
