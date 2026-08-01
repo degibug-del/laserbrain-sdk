@@ -1,5 +1,89 @@
 # Changelog
 
+## 0.40.0 - 2026-08-01
+
+**A catch can now name the reading that was live when it happened, so sensitivity is
+computable for the first time.**
+
+`corpus-map.py` printed, for weeks: *d-prime not computable, now or ever, from this
+corpus.* That was true about the data and wrong about the word "ever". Nothing about the
+world blocked it — a field was missing.
+
+Precision only needs fires, and a fire identifies itself. Sensitivity needs the opposite
+case: a moment where something was genuinely wrong and the instrument said nothing. The
+only independent evidence of "genuinely wrong" is a `catch` — a non-zero exit, a test going
+red, recorded by a hook with no opinion about the instrument. Catches lived in the session
+file under one step counter; readings lived in the drift log under another; no shared key.
+A catch could not point at the reading it belonged to, so a miss was unobservable.
+
+  · `check_state` returns `run` and `step` — the drift log's primary key, which until now
+    never left the process that wrote it.
+  · `Session.check()` accepts and records `run`/`run_step`. Both optional: a caller without
+    them is an older server, and None must stay distinguishable from a real run so those
+    rows can be excluded rather than silently joined to nothing.
+  · `verdict_of()` returns them, named `run`/`run_step` so the server's reading number is
+    never confused with the session's tool-call number.
+  · New `Session.attribute()` — every catch records the live reading plus `since`, how many
+    steps back it was. Attribution decays: coverage runs near 24%, so a catch twelve steps
+    after the last reading fell in a stretch nothing watched, and scoring that as a miss
+    would blame the detector for a step it was never shown. The distance has to survive
+    alongside the join or the join is misleading.
+
+Nothing about the measurement changed. No threshold moved, no verdict was added or removed,
+and drift vectors from 0.39.0 remain comparable.
+
+Tooling shipped alongside (in lasermind, not the package): `sensitivity.py` computes the
+second row of the detection matrix and withholds d' until n supports it; `replay.py` scores
+the grammar against externally-labelled traces; `server_probe.py` lets conformance tests ask
+the running server instead of scraping its source.
+
+## 0.39.0 - 2026-08-01
+
+**laserbrain measures the same way for every agent, and now says so. No vendor is named in
+any logic, any user-facing string, or any test.**
+
+The instrument had one particular pair of hosts compiled into it. Not as configuration —
+as branching. `agent_of` and `session_id_of` enumerated two vendors' env vars and returned
+the matching brand; `check_howto` branched on `if me == 'grok'`; `is_grok` decided an
+injection path. An instrument shipping a list of which agents exist has to be edited to
+measure a new one, and that list is a claim about the world that goes stale.
+
+  · from_claude_code and from_grok were BYTE-IDENTICAL apart from the docstring. The
+    spelling difference they appeared to handle is absorbed by session_id_of and
+    normalise, which read both. One `from_hook` now; both names kept as aliases.
+  · agent_of / session_id_of: LASERBRAIN_AGENT and LASERBRAIN_SESSION_ID, declared, then a
+    fallback that cannot be wrong.
+  · check_howto: a table in lasergear/hosts.json. Hosts DO differ in how a tool is invoked
+    and that difference is real — it is configuration, not logic.
+  · is_grok -> camel_shape. It always tested payload spelling, never identity, and two
+    hosts can share a convention.
+  · every MCP tool description that said "Claude and Grok". A description is read by
+    WHATEVER agent is connected; naming two others tells a third it was built for
+    somebody else.
+
+THE OBVIOUS REPAIR WAS WORSE THAN THE BUG, twice, and both are worth recording.
+
+First: replacing the hardcoded env pair with a scan for any *_SESSION_ID, longest key
+first. This machine carries CLAUDE_CODE_SESSION_ID (the agent) and
+CLAUDE_CODE_HOST_SESSION_ID (a browser pane) — the scan picked the browser. The old code
+checked a variable that does not exist here and harmlessly fell through to the parent-pid
+fallback; the "improvement" made it confidently choose a wrong session id, which merges
+runs and misattributes catches. test_runtime.py caught it.
+
+Second: a blanket rename of fixture names in the tests reclassified corpus-map's
+self-marked labels as independent, because its STRENGTH keys were real values that had to
+match the `by` field. Strength is now DERIVED — a label is self-marked when `by` equals
+the row's `agent`, whoever they are — which is better logic than the list it replaced.
+
+Same error each time, one level down from the last: the original guessed a vendor from an
+env var, the first fix guessed a session from a variable's NAME, the second guessed that a
+string was cosmetic. A shape is not an identity, a name is not a session, and a value that
+must match data is not a label.
+
+WHAT STAYS: ~/.claude/laserbrain, the corpus path. It holds 1000+ readings and every
+session record; renaming it orphans all of that for a cosmetic gain. It is a location, not
+a claim about who may write there, and each occurrence now says so.
+
 ## 0.38.0 - 2026-08-01
 
 **A declared `parent_goal` that fell below the floor was received, measured, rejected, and

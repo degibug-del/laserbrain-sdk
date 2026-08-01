@@ -384,10 +384,37 @@ class Session:
             # A failed call is a guard failing or a test going red — dogfood ground truth,
             # recorded without anyone judging anything.
             self.d['catches'].append({'step': self.d['steps'], 'by': 'build',
-                                      'what': f'failed call: {name}'})
+                                      'what': f'failed call: {name}',
+                                      **self.attribute()})
         return self.save()
 
-    def check(self, goal, progress, distance, drifting, reason=None, phi=None):
+    def attribute(self):
+        """Which drift reading was live right now — the join, from the catch's side.
+
+        Catches are the only evidence here that the agent did not produce about itself: a
+        failed call is the build disagreeing, and the build holds no opinion about the
+        instrument. That makes them the sole possible source of sensitivity. But a catch
+        could not name the reading it belonged to, so `corpus-map.py` printed d-prime as
+        "not computable, now or ever, from this corpus". It is computable from the moment
+        both sides carry the same key, and this is that side.
+
+        `since` travels with it because attribution decays with distance. A failure one
+        step after a reading was live under it; a failure fourteen steps later fell in a
+        stretch the instrument was never shown, and scoring that as a MISS would blame the
+        detector for not firing on a step it never saw. Coverage here runs near 24%, so
+        most catches land in exactly that unwatched gap — which makes the ability to
+        DISCARD the far ones the difference between a sensitivity number and a fiction.
+        """
+        checks = self.d.get('checks') or []
+        if not checks:
+            return {'run': None, 'run_step': None, 'since': None}
+        last = checks[-1]
+        return {'run': last.get('run'),
+                'run_step': last.get('run_step'),
+                'since': int(self.d.get('steps', 0)) - int(last.get('step') or 0)}
+
+    def check(self, goal, progress, distance, drifting, reason=None, phi=None,
+              run=None, run_step=None):
         """A SPELLED check. Inputs are recorded so the session can be replayed under a
         different calibration — see calibrate.py.
 
@@ -395,6 +422,14 @@ class Session:
         WHICH signal fired. Without them every fire is an undifferentiated True and the
         question "do goal-drift fires cluster on goal restatements" cannot be asked of the
         data at all. Optional, because older callers pass four positional arguments.
+
+        `run` and `run_step` are the drift log's primary key, carried so a catch recorded
+        HERE can name the reading that was live when it happened. Two step counters ran
+        side by side — this file counting tool calls, the server counting readings — with
+        nothing joining them, which is why precision was computable and d-prime was not.
+        Also optional: a caller that does not have them is an older server, and None must
+        stay distinguishable from a real run so those rows can be excluded rather than
+        silently joined to nothing.
         """
         self.d['steps'] += 1
         rec = {'step': self.d['steps'], 'drifting': bool(drifting),
@@ -404,6 +439,10 @@ class Session:
             rec['reason'] = str(reason)
         if phi is not None:
             rec['phi'] = phi
+        if run is not None:
+            rec['run'] = str(run)
+        if run_step is not None:
+            rec['run_step'] = run_step
         self.d['checks'].append(rec)
         # After a reset the agent's own spelled goal is authoritative — it is the task as
         # the agent states it, which is exactly what a ground should be.
@@ -501,7 +540,8 @@ class Session:
         if kind == 'check':
             v = verdict_of(text)
             self.check(args.get('goal', ''), args.get('progress', ''), args.get('distance'),
-                       v['drifting'], reason=v['reason'], phi=v['phi'])
+                       v['drifting'], reason=v['reason'], phi=v['phi'],
+                       run=v.get('run'), run_step=v.get('run_step'))
             return None
         if kind == 'tool':
             self.tool(tool, args, ok)
@@ -594,9 +634,16 @@ def verdict_of(text):
         return None
 
     found = walk(text) or {}
+    # `run` and `step` are the drift log's key. They are returned as `run`/`run_step` so
+    # the caller never confuses the server's reading number with the session's tool-call
+    # number — the two counters that were silently unrelated for the whole corpus. None
+    # means the server predates 2026-08-01 and cannot be joined, which is a different
+    # statement from "no run" and has to stay tellable apart downstream.
     return {'drifting': bool(found.get('drifting')),
             'reason': str(found.get('reason') or 'no-reading'),
-            'phi': found.get('phi')}
+            'phi': found.get('phi'),
+            'run': found.get('run'),
+            'run_step': found.get('step')}
 
 
 def from_hook(ev, directory=None):

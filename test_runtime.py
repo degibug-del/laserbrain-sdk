@@ -118,15 +118,15 @@ with tempfile.TemporaryDirectory() as d:
     show('the OpenAI-Agents adapter lands in the same format',
          t5['steps'] == 1 and len(t5['catches']) == 1, t5['catches'][0]['what'])
 
-    from_grok({'sessionId': 't7', 'prompt': 'upgrade grok'}, directory=d)
+    from_grok({'sessionId': 't7', 'prompt': 'upgrade agent-b'}, directory=d)
     from_grok({'sessionId': 't7', 'toolName': 'run_terminal_command',
                'toolInput': {'command': 'false'}, 'toolResult': {'exit_code': 1}}, directory=d)
     from_grok({'sessionId': 't7', 'toolName': 'laserbrain__check_state',
-               'toolInput': {'goal': 'upgrade grok', 'progress': 'advancing', 'distance': 4},
+               'toolInput': {'goal': 'upgrade agent-b', 'progress': 'advancing', 'distance': 4},
                'toolResult': {'drifting': False}}, directory=d)
     t7 = json.loads((pathlib.Path(d) / 't7.json').read_text())
-    show('the Grok adapter records goal, catch and spelled check',
-         t7['goal'] == 'upgrade grok' and len(t7['catches']) == 1 and len(t7['checks']) == 1,
+    show('the a host adapter records goal, catch and spelled check',
+         t7['goal'] == 'upgrade agent-b' and len(t7['catches']) == 1 and len(t7['checks']) == 1,
          f"goal={t7.get('goal')} catches={len(t7.get('catches',[]))} checks={len(t7.get('checks',[]))}")
     show('session stamps agent', bool(t7.get('agent')), t7.get('agent'))
 
@@ -157,7 +157,7 @@ with tempfile.TemporaryDirectory() as d:
     show('coverage_warning fires after lapse', s8.coverage_warning() is not None)
 
 # ── the link-run fixes (2026-07-25) ────────────────────────────────────────
-# Found by running Claude and Grok at the same time and reading the corpus: 50 steps
+# Found by running a host and a host at the same time and reading the corpus: 50 steps
 # from two agents merged into one `unknown.json`, a ground goal of 'do all', and a
 # prompt stored as '<user_query>...</user_query>'.
 

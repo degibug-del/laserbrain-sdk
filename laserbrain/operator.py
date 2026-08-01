@@ -66,7 +66,7 @@ def _patterns():
     """The irreversible-command list, compiled once, from grammar.json.
 
     Read from the grammar rather than typed here. The same list is what
-    lasergear/lb_safety.py enforces as a Claude Code PreToolUse deny, and that file ships
+    lasergear/lb_safety.py enforces as a PreToolUse deny hook, and that file ships
     as a hook while this one ships on PyPI — neither can import the other, so a literal
     list in either place becomes two lists that drift. grammar.json is already canonical,
     already synced across four copies, and already packaged with the wheel.

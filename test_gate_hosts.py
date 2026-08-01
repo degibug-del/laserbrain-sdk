@@ -1,12 +1,17 @@
 #!/usr/bin/env python3
-"""test_gate_grok.py — Grok-facing claim/coverage gate behaviours.
+"""test_gate_hosts.py — per-host claim/coverage gate behaviours.
 
 Pins the 2026-07-25 improvement list:
-  - search_replace is a write tool (claim gate sees Grok edits)
+  - search_replace is a write tool (the claim gate sees edits made with it)
   - search_tool is always allowed (no schema-discovery deadlock)
   - agent identity: env → session → unknown
   - link rows: from= and agent= both count
-  - deny howto mentions use_tool for me=grok
+  - the deny howto is per-host: a configured host gets its own text, others the default
+
+Agent names here are FIXTURES. The assertions prove which key is read and which branch
+runs, never which vendor sent the payload, so 'agent-a' and 'agent-b' say what they are.
+The one place a name is load-bearing — the howto lookup — installs its own fixture config
+rather than depending on whichever host the deployment happens to configure.
 """
 import json, os, pathlib, subprocess, sys, tempfile, importlib.util
 
@@ -74,7 +79,7 @@ def main():
     show('search_tool in ALWAYS_ALLOW',
          any('search_tool' in a for a in g.ALWAYS_ALLOW))
 
-    # ── edit_target sees Grok search_replace ───────────────────────────────
+    # ── edit_target sees search_replace ────────────────────────────────────
     ev = {
         'tool_name': 'search_replace',
         'tool_input': {'file_path': '/repo/app/locus/page.tsx', 'old_string': 'a', 'new_string': 'b'},
@@ -91,19 +96,19 @@ def main():
          g.edit_target(ev_write, 'write') == '/repo/x.py')
 
     # ── entry_agent ────────────────────────────────────────────────────────
-    show('entry_agent from=', g.entry_agent({'from': 'claude'}) == 'claude')
-    show('entry_agent agent=', g.entry_agent({'agent': 'grok'}) == 'grok')
+    show('entry_agent from=', g.entry_agent({'from': 'agent-a'}) == 'agent-a')
+    show('entry_agent agent=', g.entry_agent({'agent': 'agent-b'}) == 'agent-b')
     show('entry_agent payload.from',
-         g.entry_agent({'payload': {'from': 'grok'}}) == 'grok')
+         g.entry_agent({'payload': {'from': 'agent-b'}}) == 'agent-b')
 
     # ── resolve_me priority ────────────────────────────────────────────────
     old = os.environ.get('LASERBRAIN_AGENT')
     try:
-        os.environ['LASERBRAIN_AGENT'] = 'grok'
-        show('resolve_me prefers env', g.resolve_me({}, {'agent': 'claude'}) == 'grok')
+        os.environ['LASERBRAIN_AGENT'] = 'agent-b'
+        show('resolve_me prefers env', g.resolve_me({}, {'agent': 'agent-a'}) == 'agent-b')
         del os.environ['LASERBRAIN_AGENT']
         show('resolve_me falls back to session',
-             g.resolve_me({}, {'agent': 'grok'}) == 'grok')
+             g.resolve_me({}, {'agent': 'agent-b'}) == 'agent-b')
         show('resolve_me unknown default', g.resolve_me({}, None) == 'unknown')
     finally:
         if old is not None:
@@ -112,58 +117,72 @@ def main():
             os.environ.pop('LASERBRAIN_AGENT', None)
 
     # ── check_howto agent-aware ────────────────────────────────────────────
-    show('howto grok mentions use_tool', 'use_tool' in g.check_howto('grok'))
-    show('howto claude mentions mcp__laserbrain',
-         'mcp__laserbrain__check_state' in g.check_howto('claude'))
+    # Fixture config on the freshly-loaded module. Asserting against the real hosts.json
+    # would tie this test to whichever host the deployment configures — it would pass for
+    # the wrong reason today and break when the config changes, without the behaviour
+    # having moved. What is under test is the LOOKUP: a configured host gets its own text,
+    # anything else gets the default.
+    _saved_hosts, _saved_default = g._HOSTS, g.CHECK_HOWTO_DEFAULT
+    try:
+        g._HOSTS = {'by_agent': {'agent-b': 'CALL-IT-THE-AGENT-B-WAY'}}
+        g.CHECK_HOWTO_DEFAULT = 'CALL-IT-THE-GENERIC-WAY'
+        show('a configured host gets its own howto',
+             g.check_howto('agent-b') == 'CALL-IT-THE-AGENT-B-WAY')
+        show('an unconfigured host gets the default',
+             g.check_howto('agent-z') == 'CALL-IT-THE-GENERIC-WAY')
+        show('a missing agent gets the default',
+             g.check_howto(None) == 'CALL-IT-THE-GENERIC-WAY')
+    finally:
+        g._HOSTS, g.CHECK_HOWTO_DEFAULT = _saved_hosts, _saved_default
 
     # ── claimed_by_others: agent= claims + closed waves ────────────────────
     import tempfile
     with tempfile.TemporaryDirectory() as td:
         tlog = pathlib.Path(td) / 't.jsonl'
         rows = [
-            {'kind': 'wave_open', 'from': 'claude', 'payload': {'wave': 9}},
-            {'kind': 'claim', 'agent': 'grok', 'payload': {'wave': 9, 'paths': ['app/locus/']}},
-            {'kind': 'claim', 'from': 'claude', 'payload': {'wave': 9, 'paths': ['lasermind/']}},
+            {'kind': 'wave_open', 'from': 'agent-a', 'payload': {'wave': 9}},
+            {'kind': 'claim', 'agent': 'agent-b', 'payload': {'wave': 9, 'paths': ['app/locus/']}},
+            {'kind': 'claim', 'from': 'agent-a', 'payload': {'wave': 9, 'paths': ['lasermind/']}},
         ]
         tlog.write_text('\n'.join(json.dumps(r) for r in rows) + '\n')
         g.LINK_LOG = tlog
-        by = g.claimed_by_others('grok')
-        show('grok does not see own claim as other',
+        by = g.claimed_by_others('agent-b')
+        show('an agent does not see its own claim as other',
              'app/locus/' not in by, repr(by))
-        show('grok sees claude claim',
-             by.get('lasermind/') == 'claude', repr(by))
-        by_c = g.claimed_by_others('claude')
-        show('claude sees grok claim via agent=',
-             by_c.get('app/locus/') == 'grok', repr(by_c))
-        # close wave for claude
-        rows.append({'kind': 'wave_close', 'from': 'claude', 'payload': {'wave': 9}})
+        show("an agent sees another agent's claim",
+             by.get('lasermind/') == 'agent-a', repr(by))
+        by_c = g.claimed_by_others('agent-a')
+        show('a claim written with agent= is seen too',
+             by_c.get('app/locus/') == 'agent-b', repr(by_c))
+        # close the wave
+        rows.append({'kind': 'wave_close', 'from': 'agent-a', 'payload': {'wave': 9}})
         tlog.write_text('\n'.join(json.dumps(r) for r in rows) + '\n')
-        by_after = g.claimed_by_others('grok')
+        by_after = g.claimed_by_others('agent-b')
         show('closed agent claims drop',
              'lasermind/' not in by_after, repr(by_after))
         # free-form standing (no open wave at all)
         tlog.write_text('\n'.join(json.dumps(r) for r in [
-            {'kind': 'claim', 'agent': 'claude',
+            {'kind': 'claim', 'agent': 'agent-a',
              'payload': {'paths': ['phronesis/lasermind/hooks/']}},
         ]) + '\n')
-        by_ff = g.claimed_by_others('grok')
+        by_ff = g.claimed_by_others('agent-b')
         show('free-form claim locks without wave',
-             by_ff.get('phronesis/lasermind/hooks/') == 'claude', repr(by_ff))
+             by_ff.get('phronesis/lasermind/hooks/') == 'agent-a', repr(by_ff))
         tlog.write_text('\n'.join(json.dumps(r) for r in [
-            {'kind': 'claim', 'agent': 'claude',
+            {'kind': 'claim', 'agent': 'agent-a',
              'payload': {'paths': ['phronesis/lasermind/hooks/']}},
-            {'kind': 'done', 'agent': 'claude',
+            {'kind': 'done', 'agent': 'agent-a',
              'payload': {'release_claims': True}},
         ]) + '\n')
-        by_rel = g.claimed_by_others('grok')
+        by_rel = g.claimed_by_others('agent-b')
         show('free-form claim released by done(release_claims)',
              'phronesis/lasermind/hooks/' not in by_rel, repr(by_rel))
 
     # ── integration: search_tool always allowed even past BLOCK_AFTER ──────
     code, err, out = run_gate(
         {'tool_name': 'search_tool', 'tool_input': {'query': 'laserbrain'}},
-        env={'LASERBRAIN_AGENT': 'grok'},
-        session={'steps': 20, 'checks': [{'step': 1}], 'agent': 'grok'},
+        env={'LASERBRAIN_AGENT': 'agent-b'},
+        session={'steps': 20, 'checks': [{'step': 1}], 'agent': 'agent-b'},
     )
     show('search_tool allowed under gate pressure', code == 0, f'exit={code} err={err[:120]!r}')
 
@@ -176,17 +195,17 @@ def main():
                 'old_string': 'a', 'new_string': 'b',
             },
         },
-        env={'LASERBRAIN_AGENT': 'claude'},
+        env={'LASERBRAIN_AGENT': 'agent-a'},
         link=[
-            {'kind': 'wave_open', 'from': 'claude', 'payload': {'wave': 42}},
-            {'kind': 'claim', 'agent': 'grok', 'payload': {'wave': 42, 'paths': ['app/locus/']}},
+            {'kind': 'wave_open', 'from': 'agent-a', 'payload': {'wave': 42}},
+            {'kind': 'claim', 'agent': 'agent-b', 'payload': {'wave': 42, 'paths': ['app/locus/']}},
         ],
-        session={'steps': 1, 'checks': [{'step': 1}], 'agent': 'claude'},
+        session={'steps': 1, 'checks': [{'step': 1}], 'agent': 'agent-a'},
     )
     show('search_replace claim-blocked for foreign path',
          code == 2 and 'claim gate' in err, f'exit={code} err={err[:200]!r}')
 
-    # ── integration: own claim not blocked when agent=grok ─────────────────
+    # ── integration: own claim not blocked when the claimer is this agent ──
     code, err, out = run_gate(
         {
             'tool_name': 'search_replace',
@@ -195,24 +214,29 @@ def main():
                 'old_string': 'a', 'new_string': 'b',
             },
         },
-        env={'LASERBRAIN_AGENT': 'grok'},
+        env={'LASERBRAIN_AGENT': 'agent-b'},
         link=[
-            {'kind': 'wave_open', 'from': 'claude', 'payload': {'wave': 42}},
-            {'kind': 'claim', 'agent': 'grok', 'payload': {'wave': 42, 'paths': ['app/locus/']}},
+            {'kind': 'wave_open', 'from': 'agent-a', 'payload': {'wave': 42}},
+            {'kind': 'claim', 'agent': 'agent-b', 'payload': {'wave': 42, 'paths': ['app/locus/']}},
         ],
-        session={'steps': 1, 'checks': [{'step': 1}], 'agent': 'grok'},
+        session={'steps': 1, 'checks': [{'step': 1}], 'agent': 'agent-b'},
     )
     show('search_replace allowed on own claim',
          code == 0, f'exit={code} err={err[:200]!r}')
 
-    # ── integration: coverage deny mentions use_tool for grok ──────────────
+    # ── integration: the coverage deny carries a howto ─────────────────────
     code, err, out = run_gate(
         {'tool_name': 'run_terminal_command', 'tool_input': {'command': 'echo hi'}},
-        env={'LASERBRAIN_AGENT': 'grok'},
-        session={'steps': 20, 'checks': [{'step': 1}], 'agent': 'grok'},
+        env={'LASERBRAIN_AGENT': 'agent-b'},
+        session={'steps': 20, 'checks': [{'step': 1}], 'agent': 'agent-b'},
     )
-    show('coverage deny for grok mentions use_tool',
-         code == 2 and 'use_tool' in err, f'exit={code} err={err[:220]!r}')
+    # This subprocess runs as an UNCONFIGURED agent, so the deny must carry the default
+    # howto. Asserting a configured host's wording here would have tested the deployment's
+    # hosts.json rather than the gate, and would break whenever that config changed
+    # without the gate having moved. The per-host branch is covered above, in isolation.
+    show('the coverage deny carries the default howto',
+         code == 2 and 'mcp__laserbrain__check_state' in err,
+         f'exit={code} err={err[:220]!r}')
 
     print('\n  ' + ('PASS' if ok else 'FAIL'))
     return 0 if ok else 1
