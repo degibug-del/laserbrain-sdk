@@ -26,7 +26,7 @@ from pathlib import Path as _Path
 
 __all__ = ['Harness', 'Team', 'Verdict', 'PRESETS', 'norm', 'laserscore', 'context_id',
            'verify_audit', 'ground_score', 'MAX_DEPTH']
-__version__ = '0.31.0'
+__version__ = '0.38.0'
 MAX_DEPTH = 50   # nesting deeper than this is a drift signal, not a decomposition
 API_DEFAULT = 'https://laserbrain-mcp.degibug.workers.dev'
 
@@ -536,6 +536,27 @@ class Verdict:
     # The context this verdict was taken in — stable across sessions and machines, so a
     # run can be recognised as another attempt at something already tried. See context_id.
     context: str = None
+    # Set only when a parent_goal was declared AND fell below goal_min. None means no
+    # declaration was made; a number means one was made, measured, and rejected — and the
+    # advice says so rather than telling the agent to do what it just did.
+    parent_overlap: float = None
+    # The introspection ceiling, read off the agent's own words rather than its events.
+    #
+    # `anchored` asks whether observed work backs the claim; this asks whether the agent
+    # was CLAIMING or REPORTING in the first place. They disagree in both directions and
+    # that is the point: an agent that ran nothing but wrote pure observation is
+    # unanchored and honest, and one whose tests passed but who writes "this should fix
+    # it" is corroborated and still guessing.
+    #
+    # None when the step carried no free text, or when no phrase matched — a marker that
+    # read nothing must not report 0.0, which would mean "entirely cause-claims". Like
+    # `anchored`, reported and NEVER folded into Φ. See laserbrain/ceiling.py.
+    #
+    # TEST IT WITH `is None`, NEVER FOR TRUTHINESS. None and 0.0 are both falsy, so
+    # `if v.claims['grounded']:` silently merges "the marker read nothing" with "every
+    # phrase was a cause-claim" — the exact distinction this field exists to draw. That
+    # is why `scores` omits the key entirely rather than carrying a number for it.
+    claims: dict = None
 
     @property
     def ground_score(self) -> float:
@@ -550,12 +571,18 @@ class Verdict:
         work and a goal quietly swapped for an easier one sit at the same Φ, and the
         difference between them is the only part worth knowing.
         """
-        return {
+        out = {
             'goal': round(self.goal_score, 2),
             'ground': round(self.ground_score, 2),
             'drift': round(self.phi, 2),
             'evidence': round(self.anchored, 2),
         }
+        # Present only when the marker actually read something. An absent key is
+        # "no free text was spelled this step", which is different from a low score
+        # and must not be reported as one.
+        if self.claims and self.claims.get('grounded') is not None:
+            out['language'] = self.claims['grounded']
+        return out
 
     def __str__(self) -> str:
         mark = '⚑ drifting' if self.drifting else ('✓ grounded' if self.reason == 'grounded' else '· on track')
@@ -812,7 +839,7 @@ class _Run:
         # there is nothing to write when the state cannot be spelled.
         score = None
 
-        def emit(reason, drifting, advice, phi=0.0, why=''):
+        def emit(reason, drifting, advice, phi=0.0, why='', parent_overlap=None):
             # The trace records the READING; the cycle is a fact about the sequence, so the
             # original goes in and `oscillating` is what comes out. Storing the meta-verdict
             # instead would erase the pattern that produced it.
@@ -854,8 +881,15 @@ class _Run:
                                self._anchor())
             if not p:
                 self._osc = False
-            return Verdict(drifting, reason, round(phi, 2), advice, why, score, self._anchor(),
-                           self._goal_score(goal), context_id(goal))
+            v = Verdict(drifting, reason, round(phi, 2), advice, why, score, self._anchor(),
+                        self._goal_score(goal), context_id(goal))
+            # How well a DECLARED parent matched the ground, when one was declared and fell
+            # short. Present only then — an absent field means no declaration was made,
+            # which is different from one that was made and rejected, and the corpus needs
+            # to tell those apart to ever settle what the right measure is.
+            if parent_overlap is not None:
+                v.parent_overlap = round(parent_overlap, 2)
+            return v
 
         goal = str(goal or '').strip()
         if not goal or progress not in _PROGRESS:
@@ -927,6 +961,12 @@ class _Run:
             #
             # Strictly additive. parent_goal=None takes the identical path it always took,
             # so the frozen instrument stays frozen and the old corpus stays comparable.
+            # Cleared on EVERY pass through this branch, before anything can set it.
+            # Leaving it to the parent block meant a later bare call inherited the previous
+            # step's rejection and reported parent_overlap on a call that declared nothing —
+            # collapsing the one distinction this field exists to draw, that None means no
+            # declaration was made and a number means one was made and rejected.
+            self._rejected_parent = None
             if parent_goal and str(parent_goal).strip():
                 if self.sim:
                     p_anchor = _clamp01(self.sim(parent_goal, self.first_goal_text))
@@ -934,6 +974,23 @@ class _Run:
                     p = norm(parent_goal)
                     p_anchor = ((len(p & self.first_goal) / len(p | self.first_goal))
                                 if (p or self.first_goal) else 0.0)
+                # A DECLARATION THAT FALLS SHORT MUST NOT VANISH.
+                #
+                # Below the floor this used to drop straight through to goal-drift, whose
+                # advice then said "If this is a sub-task, pass parent_goal" — to an agent
+                # that had just passed one. The declaration was received, measured,
+                # rejected, and never mentioned. All three parents ever declared in the
+                # corpus were rejected this way (overlaps 0.03, 0.04, 0.17 against a floor
+                # of 0.30), which is the whole of why adoption sits at 0.2%: the field
+                # appears not to work, and nothing says otherwise.
+                #
+                # The threshold is NOT changed here. Three rejected declarations cannot
+                # choose a replacement measure — containment rescues one of them,
+                # child-in-parent rescues a different one, neither rescues the third — and
+                # moving a published calibration on three points is the mistake the corpus
+                # exists to prevent. Making the rejection legible is what generates the
+                # data to settle it.
+                self._rejected_parent = None if p_anchor >= self.cal.goal_min else p_anchor
                 if p_anchor >= self.cal.goal_min:
                     return emit('excursion', False,
                                 f'On a sub-task (overlap {anchor:.2f}) that still serves your ground '
@@ -947,6 +1004,21 @@ class _Run:
             # redirected you (reset), you are on a sub-task (parent_goal), or you really did
             # wander off (return). Only the third is drift. A verdict that names one cause
             # teaches the agent that cause is the only one.
+            rej = getattr(self, '_rejected_parent', None)
+            if rej is not None:
+                # Name what happened to the declaration, and never tell an agent to do the
+                # thing it just did.
+                return emit('goal-drift', True,
+                            f'Your goal no longer matches the one you started with (overlap '
+                            f'{anchor:.2f}). You DID declare a parent, and it was measured at '
+                            f'{rej:.2f} against your ground — below the {self.cal.goal_min:.2f} '
+                            f'floor, so this reads as drift rather than an excursion. Either the '
+                            f'parent is not the goal this serves, or it shares too little wording '
+                            f'with it to be recognised. If the user redirected you, reset.', phi,
+                            why=f'overlap with the first goal is {anchor:.2f} and the declared '
+                                f'parent overlaps {rej:.2f}, both below goal_min '
+                                f'{self.cal.goal_min:.2f}; first goal was {self.first_goal_text!r}',
+                            parent_overlap=rej)
             return emit('goal-drift', True,
                         f'Your goal no longer matches the one you started with (overlap {anchor:.2f}). '
                         f'If the user redirected you, reset. If this is a sub-task, pass parent_goal. '
@@ -982,6 +1054,112 @@ def _post(api, key, path, body):
             return json.load(resp)
     except Exception:
         return None
+
+
+class _Mirror:
+    """The API mirror, moved off the critical path.
+
+    `check()` ended with a blocking POST to /v1/drift, commented "best-effort". It was not
+    best-effort in any sense the caller could feel: profiling put 96% of check() inside
+    urlopen, at ~135 ms against 869 us keyless — a 155x tax on the measurement, paid by
+    every keyed check. A hung network would have paid the full 8-second timeout, so the
+    instrument's worst case was the network's worst case.
+
+    Mirroring is genuinely a side-effect: nothing in the verdict depends on it and the
+    return value was discarded. So it belongs on a thread, and the only real requirements
+    are the ones a naive `Thread(target=...)` per call would break:
+
+    ORDER. One worker draining one queue, so the server sees the steps in the order they
+    happened. A thread per post would race and scramble a run's history — worse than slow.
+
+    BOUNDED. maxsize, and a full queue drops the OLDEST and counts it. A mirror that grows
+    without limit while the network is down is a memory leak inside the thing that was
+    supposed to cost nothing, and dropping the oldest keeps the most recent history — the
+    part anyone is actually looking at.
+
+    HONEST ON EXIT. Daemon thread, so it can never hang a process, plus an atexit drain
+    with a short bound. Anything still queued after that is dropped and counted rather
+    than waited on; `stats()` says so. Losing a mirrored row is acceptable, hanging
+    somebody's script on exit is not.
+    """
+
+    def __init__(self, maxsize: int = 256, drain_seconds: float = 2.0):
+        self._q = None
+        self._thread = None
+        self._maxsize = maxsize
+        self._drain = drain_seconds
+        self.sent = 0
+        self.dropped = 0
+        self.failed = 0
+
+    def _ensure(self):
+        if self._thread is not None:
+            return
+        import atexit
+        import queue
+        import threading
+        self._q = queue.Queue(maxsize=self._maxsize)
+
+        def worker():
+            while True:
+                item = self._q.get()
+                if item is None:
+                    self._q.task_done()
+                    return
+                try:
+                    if _post(*item) is None:
+                        self.failed += 1
+                    else:
+                        self.sent += 1
+                except Exception:
+                    self.failed += 1        # a mirror may never raise into the caller
+                finally:
+                    self._q.task_done()
+
+        self._thread = threading.Thread(target=worker, name='laserbrain-mirror', daemon=True)
+        self._thread.start()
+        atexit.register(self.flush)
+
+    def send(self, api, key, path, body) -> None:
+        """Queue a mirror. Never blocks, never raises, never returns a verdict."""
+        try:
+            self._ensure()
+            try:
+                self._q.put_nowait((api, key, path, body))
+            except Exception:                # Full
+                try:
+                    self._q.get_nowait()     # drop the OLDEST, keep the recent history
+                    self._q.task_done()
+                    self.dropped += 1
+                    self._q.put_nowait((api, key, path, body))
+                except Exception:
+                    self.dropped += 1
+        except Exception:
+            self.dropped += 1
+
+    def flush(self, seconds: float | None = None) -> bool:
+        """Drain, bounded. True if everything went; False if anything was left behind."""
+        if self._q is None:
+            return True
+        import time as _t
+        deadline = _t.monotonic() + (self._drain if seconds is None else seconds)
+        while _t.monotonic() < deadline:
+            if self._q.unfinished_tasks == 0:
+                return True
+            _t.sleep(0.01)
+        left = self._q.unfinished_tasks
+        if left:
+            self.dropped += left
+        return left == 0
+
+    def stats(self) -> dict:
+        return {'sent': self.sent, 'failed': self.failed, 'dropped': self.dropped,
+                'queued': 0 if self._q is None else self._q.qsize()}
+
+
+#: One mirror for the process. Module-level so every Harness shares the single ordered
+#: worker — a queue per instance would reintroduce exactly the race it exists to avoid.
+MIRROR = _Mirror()
 
 
 def _get(api, key, path):
@@ -1070,12 +1248,28 @@ class Harness:
     last = None
 
     def check(self, goal, progress='advancing', distance=5, tokens=None, overhead=False,
-              inferred=False, parent_goal=None, user_turn=False) -> Verdict:
+              inferred=False, parent_goal=None, user_turn=False,
+              *, doing=None, next=None, blocked=None) -> Verdict:
+        """`doing`, `next` and `blocked` are the grammar's CARRIED fields.
+
+        grammar.json has declared all four carried fields since the beginning and this
+        signature accepted exactly one of them (parent_goal). The hosted Worker's
+        check_state accepts all three and reads none. So the fields were declared
+        everywhere, accepted in one place, and read nowhere — spelled by agents into a
+        slot that dropped them.
+
+        They are not measured and do not touch Φ: they are free text, and Φ is defined
+        over the three fields that can be spelled canonically. What they now feed is the
+        ceiling marker, which reads whether this step was CLAIMED or REPORTED.
+        """
         v = self._run.step(goal, progress, distance, parent_goal, user_turn)
         if inferred:
             # Marked so a spelled check and an inferred one are never averaged into one
             # number and reported as the same measurement.
             v = Verdict(v.drifting, v.reason, v.phi, v.advice + ' [inferred: Φ is a lower bound]')
+        if doing or next or blocked:
+            from .ceiling import mark as _mark
+            v.claims = _mark(doing, next, blocked)
         self._record(goal, progress, distance, v)
         # Held so something OTHER than the caller can read the reading. Added 2026-07-29
         # for Operator(harness=…): the hands need to know whether the agent asking them to
@@ -1088,7 +1282,7 @@ class Harness:
             if tokens is not None:
                 body['tokens'] = tokens
                 body['overhead'] = overhead
-            _post(self.api, self.key, '/v1/drift', body)
+            MIRROR.send(self.api, self.key, '/v1/drift', body)
         return v
 
     def audit(self) -> list:
@@ -1457,9 +1651,9 @@ class Team:
             if verbose:
                 print(f"  {role['role']:12}({role['recurse']:8}): {r['reason']:18} echo={r['echo']:<4} dist={r['dist']}" + ('  ↩ RETURN' if act else ''))
             if self.key:
-                _post(self.api, self.key, '/v1/dialogue',
-                      {'conv_id': self.name, 'agent': role['role'], 'position': pos, 'distance': dist,
-                       'team': self.name, 'role': role['role'], **({'goal': self.goal} if turn == 0 else {})})
+                MIRROR.send(self.api, self.key, '/v1/dialogue',
+                            {'conv_id': self.name, 'agent': role['role'], 'position': pos, 'distance': dist,
+                             'team': self.name, 'role': role['role'], **({'goal': self.goal} if turn == 0 else {})})
             if act:
                 injected = role.get('return', 'Return to the shared goal and take the step that most directly resolves it.')
                 (on_return or (lambda a, c: None))(injected, rec)

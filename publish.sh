@@ -26,9 +26,15 @@ echo "  mutation gate — proving the suite can go red"
 echo "    ok — every mutation caught, with and without the pin"
 
 echo "  running the suite first — a red suite is not a release"
-for t in test_metric test_adapters test_async test_ecosystem test_nested test_frozen test_behaviour test_vocab test_observe test_cli; do
-  printf "    %-16s " "$t"
-  python3 "$t.py" >/dev/null 2>&1 && echo pass || { echo FAIL; exit 1; }
+# Every test_*.py, discovered rather than a list typed once and left behind. Found on
+# 2026-07-31: this loop named ten files by hand while the repo held thirty-one, so
+# test_operator.py, test_operator_harness.py and test_nova.py — the ones covering the
+# Operator/phronesis join — had never once been run by this gate. A red suite is not a
+# release, but neither is a suite nobody is actually running.
+for f in test_*.py; do
+  t="${f%.py}"
+  printf "    %-24s " "$t"
+  python3 "$f" >/dev/null 2>&1 && echo pass || { echo FAIL; exit 1; }
 done
 
 rm -rf dist build ./*.egg-info

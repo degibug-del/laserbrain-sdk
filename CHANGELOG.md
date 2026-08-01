@@ -1,5 +1,261 @@
 # Changelog
 
+## 0.38.0 - 2026-08-01
+
+**A declared `parent_goal` that fell below the floor was received, measured, rejected, and
+never mentioned. The verdict then told the agent to pass `parent_goal` - which it had just
+done. That is why `excursion` had never once fired.**
+
+In 1008 readings the field was spelled 3 times and `excursion` fired 0 times. It looked
+like an adoption problem for weeks. It was not, and the diagnosis reversed twice before
+landing:
+
+  · NOT awareness. The goal-drift advice already said "If this is a sub-task, pass
+    parent_goal" on every one of the 181 fires.
+  · NOT a stale ground. `reground` updates `first_goal`, so the parent was being compared
+    against the live ground correctly.
+  · All 3 declarations were REJECTED for falling below goal_min - overlaps of 0.03, 0.04
+    and 0.17 against a 0.30 floor - and every rejection was silent. The verdict came back
+    as plain goal-drift, whose advice then repeated the instruction the agent had already
+    followed.
+
+An agent that declares a parent, is silently ignored, and is then told to do the thing it
+just did learns the field does not work. Adoption at 0.2% was a taught response, not
+neglect.
+
+Now: a rejected declaration is named with the number that decided it, `Verdict.parent_overlap`
+carries that number, the drift log records it, and the advice never repeats an instruction
+the agent already followed. `excursion` fires correctly when the parent holds. Mirrored in
+lasermind/mcp-server.mjs, and the two agree on identical input.
+
+THE THRESHOLD IS NOT TOUCHED, deliberately. On those 3 rejections, containment rescues one,
+child-in-parent rescues a different one, and neither rescues the third. Three points cannot
+choose a replacement measure, and moving a published calibration on an anecdote is the
+mistake the corpus work exists to prevent. Recording `parent_overlap` is what will generate
+enough rejections to settle it properly.
+
+Found by executing edge cases rather than reading them: `_rejected_parent` was only ever
+SET inside the parent block, so a later call that declared nothing inherited the previous
+step's rejection and reported an overlap for a declaration never made - collapsing the one
+distinction the field exists to draw, that None means no declaration and a number means one
+was made and rejected. Cleared unconditionally now, and pinned by a test.
+
+## 0.37.0 — 2026-08-01
+
+**`check()` was 155x slower than it needed to be, and the cost was a blocking network POST
+commented "best-effort". The mirror now runs on an ordered background worker.**
+
+Profiling put 96% of a keyed `check()` inside `urlopen`: ~135 ms per call against 869 us
+keyless, with an 8-second timeout as the worst case. A side-channel on the critical path
+of the measurement it mirrors is not best-effort, it is a dependency, and a hung network
+would have become the instrument's own worst case.
+
+Nothing in the verdict depended on it — the return value was discarded — so it belongs on
+a thread. `MIRROR` is one module-level worker draining one bounded queue, and each of
+those words is load-bearing:
+
+  ORDERED. The Worker's /v1/drift does not merely store rows: it calls `checkStep(prev,
+  body)` and reconstructs the run's state server-side, trace and cycle detection included.
+  Out-of-order arrival would corrupt that reconstruction, which is worse than being slow
+  because it would be silently wrong. One worker posts synchronously and waits, so
+  request N completes before N+1 is sent — order holds end to end, not merely at enqueue.
+
+  BOUNDED. 256 deep; a full queue drops the OLDEST and counts it. An unbounded queue is a
+  memory leak inside the thing that was supposed to cost nothing, and dropping the oldest
+  keeps the recent history, which is the part anyone reads.
+
+  UNABLE TO REACH THE CALLER. Daemon thread, so it can never hang a process, plus an
+  atexit drain with a short bound. A mirror that raises must not break a measurement.
+
+Measured after the change: 1152 us per keyed check against a stub that sleeps 20,000 us,
+with delivery order verified as [9,8,7,6,5,4,3,2,1,0] arriving exactly as sent, and 400
+sends into a wedged network shedding 144 rows rather than growing. `test_mirror.py` pins
+all four properties.
+
+`/v1/escalation` stays synchronous: it reads `esc_id` off the response and genuinely needs
+the round trip. Only the two posts that discarded their return moved.
+
+CHANGED SEMANTICS, stated plainly: mirrored rows were guaranteed-but-slow and are now
+fast-but-droppable. Under an outright network failure they were already lost — the
+synchronous `_post` swallowed the exception and moved on. What is new is loss when the
+network is merely SLOW, once ~25 seconds of backlog accumulates. A normally-paced agent
+will never reach that; a tight loop against a degraded network will. Since the server
+reconstructs from the stream, a dropped row leaves a hole in its trace rather than merely
+missing data.
+
+## 0.36.0 — 2026-07-31
+
+**The window is configurable, because it is a frame and not a setting. `Search(window=N)`
+moves the instrument; `temperature(window=N)` reads another frame without moving it.**
+
+Temperature landed in 0.35.0 with the window fixed at the published calibration, and the
+open question was left sitting in the docstring: nothing says which window is correct.
+Measuring it made the question concrete. One trail, read at windows 2, 3, 4, 6, 8 and 9,
+gives 0.42, 0.28, 0.46, 0.64, 0.60 and 0.65 — a 2.3x spread on identical data, and NOT
+monotonic in the window. Narrower is not colder. The reading depends on how wide the
+window is AND on where it lands relative to the structure of the trail, so there is no
+single parameter to transform between frames with. What every frame agrees on is the
+novelty sequence, the ground count and the territory. `territory()` reports those, and now
+reports the frame beside the number, because a temperature quoted without its window is
+not a reading anyone can reproduce or compare.
+
+The two operations are deliberately separate. `temperature(window=N)` computes what
+another frame would see and changes nothing — an observer can do that without moving.
+`Search(window=N)` moves the instrument, and that is a CALIBRATION CHANGE rather than a
+display option: `settled`, `narrowing` and `thrashing` all read the same window, so a run
+at window 6 is not comparable to a run at window 4, nor to the corpus. The test proves it
+rather than trusting the docstring — the same trail ends `settled` at window 4 and
+`searching` at window 6.
+
+Windows below 2 are refused in both places. A window of 1 makes temperature the novelty of
+a single ground, which is precisely the category error the measure exists to refuse: one
+ground has a novelty and does not have a temperature.
+
+Found by executing the parameter rather than reading it: `Search(window=2.9)` silently
+truncated to 2. A frame quietly rounded down is a wrong answer with no symptom, and the
+frame moves the reading by 2.3x — so a caller passing a computed `n/2` would have been
+reading a frame they never asked for, with nothing to notice it by. Non-integers are now
+refused with a message naming both neighbouring frames; a float that is already whole
+(4.0) is accepted, since that is the same frame written differently. Strings and bools are
+refused rather than coerced.
+
+## 0.35.0 — 2026-07-31
+
+**`Search.temperature()` — how energetically the search is moving, as a number rather
+than a boundary. The first reading in this package that is undefined for a single
+observation rather than merely small.**
+
+The explore instrument already computed a novelty per ground and already thresholded that
+distribution at its EXTREMES: `settled` fires on `max(window) <= SETTLED_MAX`, `narrowing`
+on the first value against the last. Nothing reported the middle, and the middle is a
+different fact — a window holding one very hot ground among cold ones reads `narrowing`
+with a maximum of 1.00 while its mean novelty is 0.38. Neither extreme can say that.
+
+Temperature is not a property a component can have. No single molecule has one, and
+asking for the temperature of one particle is a category error rather than a hard
+measurement. The same holds here: one ground has a novelty and does not have a
+temperature — only a path does. So this returns None until the window is full, and that
+None means UNDEFINED, not zero. It is the same distinction `claims['grounded']` draws
+between "read nothing" and "read only claims", and it is drawn for the same reason: a
+number reported where none exists is a fabricated finding.
+
+Reported and decisive in nothing. `test_explore_temperature.py` runs four trails twice —
+once normally, once with `temperature()` forced to None — and compares every `reason`,
+`novelty`, `revisit` and `advice`. All identical. Had one moved, the reading would have
+stopped being a report and become a rule, and the published calibration behind those
+rules would silently no longer be the published one. No new constant, no grammar change:
+it is derived from novelty, which the instrument was already computing and discarding.
+
+Worth recording because the test caught it and not the reasoning: a search that has gone
+completely still reads 0.25 after four identical grounds, not 0.0. The window is four
+wide and the OPENING ground genuinely opened new territory, so it stays hot inside the
+window for four steps — [1.0, 0, 0, 0]. The first version of the test asserted 0.0 and
+was wrong about the instrument rather than finding a fault in it. Both facts are now
+pinned: 0.25 while the opener is in the window, exactly 0.0 once it clears.
+
+## 0.34.0 — 2026-07-31
+
+**One phrase list, two readers. `ceiling`'s patterns now live in `grammar.json`, and
+`lasermind/mcp-server.mjs` runs the same marker in JavaScript — proved by a conformance
+test that drives the real server rather than a copy of it.**
+
+0.33.0 shipped the marker with its lists as Python literals, and a note saying to promote
+them the moment a second implementation wanted them. That happened: the local MCP server
+now reads them too and reports `claims` on `check_state`. So the lists moved to the
+grammar (1.21.0), which is the rule `operator_patterns` already set — a list stays local
+until two things need it, then it goes canonical rather than becoming two lists that drift.
+
+`test_ceiling_conformance.py` is what makes that a fact rather than an intention. One list
+with two readers still lets the readers disagree about what reading it means — a different
+regex assembly, a different tie-break, a different answer for "nothing matched" — which is
+exactly how the normaliser once scored the same goal pair 0.46 in the server and 0.56 in
+the SDK, each reading its own copy with nothing checking. It speaks MCP to the real
+`mcp-server.mjs` over stdio and compares its `claims` against the SDK's `mark()` across
+randomised inputs, including every case where the two languages spell "nothing" differently
+(`None` vs `null`, both falsy).
+
+Fixed before shipping, and the most dangerous thing in this release: **empty pattern lists
+compiled to a valid regex that matched everything.** If `ceiling_patterns` were ever absent
+from the grammar, `\b(?:()|())\b` matches the empty string at every word boundary —
+sixteen phantom cause-claims on one ordinary sentence, returned as a confident
+`grounded: 0.0` about text containing no claims at all. No error, no crash, a wholly
+fabricated finding. `_compile()` now returns None on empty lists and `mark()` reports the
+honest answer, which is that it read nothing. The MCP server's normaliser has carried a
+built-in floor against this exact trap for months, with a comment reading "a fallback that
+degrades to nothing is not a fallback"; that comment was read, quoted, and then not applied
+here on the grounds that the grammar always ships. It does — but the failure is silent when
+it doesn't, and silence is the one thing this instrument is not allowed to be.
+`laserbrain.ceiling.AVAILABLE` now says which state you are in, since `mark()` alone cannot
+distinguish "no patterns to read with" from "nothing matched".
+
+## 0.33.0 — 2026-07-31
+
+**The harness could say whether observed work backed a claim. It could not say whether
+the agent was CLAIMING or REPORTING in the first place. `ceiling` reads that off the
+agent's own words, and `check()` finally accepts the free-text fields the grammar has
+declared since the beginning.**
+
+`anchored` measures how much of Φ rests outside the agent's account of itself, and its
+`corroborated` rule already names the failure: "an agent reporting `advancing` with a
+falling distance and no successful work behind it is making a claim with nothing under
+it." That is a cause-claim, caught through events. `laserbrain.ceiling` catches the same
+thing through language — available a step earlier, and available at all when no event
+evidence will ever exist. The distinction is Nisbett & Wilson (1977), and it is the same
+one the browser instrument at phronesis.world/field/ceiling has been drawing for people.
+
+It is a SECOND signal, not a replacement, and the tests exist to prove that rather than
+assert it: at identical `anchored`, an agent that ran nothing but wrote pure observation
+reads 1.0 and one whose tests passed but who writes "this should fix it" reads 0.0. They
+disagree in both directions. Like `anchored`, it is reported and NEVER folded into Φ —
+`test_ceiling.py` pins that Φ and the verdict are byte-identical with and without it.
+
+`Harness.check()` now takes `doing`, `next` and `blocked`. grammar.json has listed all
+four carried fields from the start and this signature accepted exactly one of them
+(`parent_goal`); the hosted Worker accepted all three and read none. So agents have been
+spelling them into a slot that dropped them. They are keyword-only, they do not touch Φ —
+Φ is defined over the three fields that can be spelled canonically — and what they now
+feed is the marker.
+
+Known and declared rather than discovered later: the marker is a regex over a fixed
+phrase list. It reads "since" in both its causal and temporal senses and cannot tell them
+apart, it misses paraphrase, and it marks language and not truth. A low score is a prompt
+to look, never a finding. `claims['grounded']` is `None` when nothing matched and `0.0`
+when everything matched was a claim — **both are falsy, so test it with `is None`**; a
+truthiness check merges the two, which is why `scores` omits the key rather than carrying
+a number for it.
+
+Two traps found by executing an audit rather than reading the code, both now pinned by
+tests: `doing` was reachable as a ninth positional argument (now keyword-only), and the
+None/0.0 collapse above.
+
+Not shipped, deliberately: the phrase lists were briefly promoted into `grammar.json` and
+moved straight back. A list belongs there once a SECOND implementation needs it — the
+rule `operator_patterns` set. Exactly one reader exists today, and the premature promotion
+turned the site build red on a grammar version the deployed Worker did not have.
+
+## 0.32.0 — 2026-07-31
+
+**`phronesis()` could tell you a run was not worth continuing, and nothing acted on it.
+`Operator` now refuses to take an irreversible or outward action while the run itself is
+judged `abandon`, `wrong-problem` or `repeating` — not just while the latest step is
+drifting.**
+
+The existing sixth join reads `harness.last`: one step, the most recent reading. A run
+can be twelve checks into work that never closed the distance and still have its twelfth
+step read as locally fine — same goal, honest `advancing`, a clean Φ — which is exactly
+the case a one-step gate cannot see and `phronesis()` was built to catch. `Operator.act()`
+now consults both, automatically whenever a harness is wired, with its own counter
+(`blocked_by_judgment`) so a refusal on a bad run is distinguishable in the log from a
+refusal on a bad step. `narrow` and `verify` stay advisory — they say the goal is too big
+or the self-report disagrees with the trace, not that acting right now is wrong. No added
+network cost: `phronesis()` reads data `check()` already collected.
+
+Found while wiring it: `publish.sh` ran ten of the suite's thirty-one test files, named
+by hand in a loop nobody had updated since. `test_operator.py`, `test_operator_harness.py`
+and `test_nova.py` — the tests covering the exact join this release changes — had never
+once been run by the release gate. It now discovers every `test_*.py` rather than
+enumerating them.
+
 ## 0.31.0 — 2026-07-31
 
 **The instrument could say how far you were from ground and never whether the journey was

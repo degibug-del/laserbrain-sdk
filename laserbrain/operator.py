@@ -182,14 +182,24 @@ class Operator:
         """`harness` wires the hands to the instrument. Optional, and off by default.
 
         Give it a Harness and this operator will not take an irreversible or outward action
-        while that harness's last reading says the agent is drifting. That is the whole
-        sixth join: until now the harness could say "return to your goal" and an agent was
-        free to deploy anyway, because advice is advice. Here it becomes a refusal.
+        while that harness's last reading says the agent is drifting, OR while the harness's
+        judgment on the whole run says the run itself should stop (abandon, wrong-problem,
+        repeating). That is the whole sixth join: until now the harness could say "return to
+        your goal" and an agent was free to deploy anyway, because advice is advice. Here it
+        becomes a refusal.
 
-        It reads `harness.last` rather than calling `check()` itself, and the distinction
-        matters: an operator has no goal, no progress and no distance to spell. Inventing
-        them would be the operator marking its own homework, which is the exact failure the
-        fixed reference exists to prevent.
+        Two different questions, both enforced, because they catch different failures. The
+        drift check reads `harness.last` — one step, the most recent reading. A run can be
+        twelve checks into work that never closed the distance and still have its twelfth
+        step read as locally fine, which is precisely the case `harness.phronesis()` exists
+        to catch: it reads the WHOLE trace, not the latest sample of it. Narrow and verify
+        are advisory, not blocking — they say the goal is too big or the self-report
+        disagrees with the trace, not that acting right now is wrong.
+
+        Both read the harness rather than calling it, and the distinction matters the same
+        way in both cases: an operator has no goal, no progress and no distance to spell.
+        Inventing them would be the operator marking its own homework, which is the exact
+        failure the fixed reference exists to prevent.
         """
         self.name = name
         self._authorize = authorize
@@ -203,6 +213,10 @@ class Operator:
         self.taken = 0
         #: Irreversible acts stopped because the agent was off its ground.
         self.blocked_by_drift = 0
+        #: Irreversible acts stopped because the WHOLE RUN was judged not worth continuing
+        #: (abandon, wrong-problem, repeating) — distinct from blocked_by_drift, which fires
+        #: on one bad step. This one fires on a bad run whose latest step looked fine.
+        self.blocked_by_judgment = 0
         #: Irreversible acts stopped because a PEER was already doing them.
         self.blocked_by_peer = 0
 
@@ -243,6 +257,16 @@ class Operator:
                 return self._refuse(
                     a, f'the agent is off its ground ({v.reason}, \u03a6={v.phi:.2f}) — '
                        f'return before acting irreversibly. {v.advice}')
+
+            # The whole-trace question, asked beside the one-step question. `phronesis()`
+            # is pure local computation over data check() already collected — no network
+            # call, so this costs nothing check() itself did not already pay for.
+            j = self._harness.phronesis()
+            if j.get('verdict') in ('abandon', 'wrong-problem', 'repeating'):
+                self.blocked_by_judgment += 1
+                return self._refuse(
+                    a, f"the run itself is judged {j['verdict']} — {j['because']} "
+                       f"{j['counsel']}")
 
         # ── the group half of the join ──────────────────────────────────────────────────
         #

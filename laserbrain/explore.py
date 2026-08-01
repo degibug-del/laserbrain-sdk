@@ -18,6 +18,11 @@ WHAT IS INVARIANT WHEN THE GOAL IS NOT. Four things, none of which need a fixed 
     commitment   was the last ground worked, or abandoned on sight?
     revisiting   does this ground overlap one you already left?
     narrowing    is novelty falling — is the search closing in?
+    temperature  how energetically is the path moving, taken across the window?
+
+The last is the only one that is not a property of a ground. It is a property of the
+PATH — undefined for a single ground the way temperature is undefined for a single
+molecule — and it is reported rather than thresholded. No verdict depends on it.
 
 A search is not failing because it changed direction. It is failing when it returns to
 ground it already abandoned, when it abandons ground faster than it can learn anything,
@@ -47,9 +52,15 @@ class Reading:
     grounds: int
     advice: str
     trail: str | None = None
+    # Mean novelty across the window — the ENSEMBLE reading. None until an ensemble
+    # exists, which is the whole content of the measure: a single ground has no
+    # temperature for the same reason a single molecule has none. Not 'too small to
+    # measure' — undefined. See Search.temperature.
+    temperature: float | None = None
 
     def __str__(self) -> str:                       # pragma: no cover - display only
-        return f'{self.reason} · novelty {self.novelty:.2f} · {self.grounds} grounds'
+        t = '' if self.temperature is None else f' · T {self.temperature:.2f}'
+        return f'{self.reason} · novelty {self.novelty:.2f} · {self.grounds} grounds{t}'
 
 
 def trailscore(goals) -> str | None:
@@ -65,6 +76,35 @@ def trailscore(goals) -> str | None:
     for g in goals:
         seen |= norm(g)
     return f'⟨{"|".join(sorted(seen))}⟩ ×{len(goals)}'
+
+
+def _frame(window) -> int:
+    """Validate a window, refusing silent truncation.
+
+    The frame moves the reading — the same trail reads 0.28 to 0.65 depending on it — so
+    a window quietly rounded to something the caller did not ask for is a wrong answer
+    with no symptom. `Search(window=n/2)` truncating 2.9 to 2 was accepted before this
+    existed, and the caller would never learn the frame was not the one they computed.
+
+    A float that IS a whole number (4.0) is fine — that is the same frame written
+    differently, not a different one.
+    """
+    if isinstance(window, bool) or not isinstance(window, (int, float)):
+        raise TypeError(
+            f'window must be a whole number of grounds, got {type(window).__name__} '
+            f'({window!r}). It is a count of grounds, not a label.')
+    if isinstance(window, float) and not window.is_integer():
+        raise ValueError(
+            f'window must be a whole number of grounds, got {window}. Truncating it here '
+            f'would silently read a frame you did not ask for, and the frame moves the '
+            f'reading — pass {int(window)} or {int(window) + 1} explicitly.')
+    w = int(window)
+    if w < 2:
+        raise ValueError(
+            f'window must be at least 2, got {w}. A window of 1 would make temperature '
+            'the novelty of one ground — a property of a component, which is the thing '
+            'an ensemble reading is not.')
+    return w
 
 
 class Search:
@@ -85,7 +125,31 @@ class Search:
     SETTLED_MAX = float(_E.get('settled_max', 0.15))
     WINDOW = int(_E.get('window', 4))
 
-    def __init__(self):
+    def __init__(self, window: int | None = None):
+        """`window` is the FRAME every windowed reading is taken in.
+
+        Left alone it is the published calibration (grammar.calibration.explore.window),
+        and that is the number the thresholds below were tuned against. Setting it is a
+        CALIBRATION CHANGE, not a display option: `settled`, `narrowing` and `thrashing`
+        all read this window, so a different one moves when they fire. That is allowed
+        and it is deliberate — the frame is a choice and pretending otherwise would hide
+        it — but it means a run at window 8 and a run at window 4 are not comparable,
+        and neither is comparable to the corpus.
+
+        To read ANOTHER frame without moving this one, pass a window to temperature()
+        instead. An observer can compute what a different frame would see without
+        changing frames.
+
+        Below 2 is refused. A window of 1 makes `temperature` the novelty of a single
+        ground, which is precisely the category error the measure exists to refuse: one
+        ground has a novelty and does not have a temperature.
+        """
+        if window is not None:
+            window = _frame(window)
+            # Shadows the class attribute, so every existing self.WINDOW reference —
+            # settled, narrowing, thrashing, temperature — picks this up with no other
+            # change. One frame for the whole instrument, never a mix.
+            self.WINDOW = window
         self.goals: list[str] = []
         self.tokens: list[set] = []
         self.steps: list[int] = []          # steps spent on each ground
@@ -136,7 +200,10 @@ class Search:
     def _read(self, novelty: float, revisit: float, prev_commit: float) -> Reading:
         n = len(self.goals)
         score = trailscore(self.goals)
-        mk = lambda r, a: Reading(r, novelty, prev_commit, revisit, n, a, score)
+        # Attached to every reading and decisive in none of them. The verdicts below
+        # are identical to what they were before temperature existed.
+        temp = self.temperature()
+        mk = lambda r, a: Reading(r, novelty, prev_commit, revisit, n, a, score, temp)
 
         if n == 1:
             return mk('opened', 'First ground. Everything from here is measured against the path, not against this.')
@@ -170,9 +237,51 @@ class Search:
             return Reading('unopened', 0.0, 0.0, 0.0, 0, 'No ground yet.', None)
         return self._read(self.novelty[-1], 0.0, self.steps[-1])
 
+    def temperature(self, window: int | None = None) -> float | None:
+        """How energetically the search is moving — mean novelty across the window.
+
+        AN ENSEMBLE PROPERTY, AND THAT IS THE POINT. Temperature is not a property a
+        component can have: no single molecule has one, and asking for it is a category
+        error rather than a hard measurement. The same holds here. One ground has a
+        novelty; it does not have a temperature. Only a path does. So this returns None
+        until the window is full, and None means undefined rather than zero — the same
+        distinction claims['grounded'] draws, for the same reason.
+
+        Novelty is the per-ground analogue of a particle's kinetic energy, so the mean
+        over the window is the honest mapping. 0.0 is frozen — the search has stopped
+        finding new territory. 1.0 is every ground entirely unvisited.
+
+        FRAME-DEPENDENT, AND THERE IS NO TRANSFORMATION LAW. The same trail read at
+        windows 2, 3, 4, 6, 8 and 9 gives 0.42, 0.28, 0.46, 0.64, 0.60, 0.65 — a 2.3x
+        spread, and NOT monotonic in the window. Narrower is not colder: the reading
+        depends on the window's width and on where it lands relative to the structure of
+        the trail, so there is no single parameter to transform between frames with. What
+        every frame agrees on is the novelty sequence itself, the ground count and the
+        territory — territory() reports those, and reports this number's frame beside it,
+        because a temperature without its window does not mean anything.
+
+        Pass `window` to read another frame without moving this instrument's own.
+
+        WHY IT IS NOT ANOTHER VERDICT. The existing readings threshold this distribution
+        at its EXTREMES: settled fires on max(window) <= SETTLED_MAX, narrowing on the
+        first and last values. Neither reports the middle, and the middle is a different
+        fact — a window can hold one very hot ground among cold ones and read neither
+        settled nor narrowing while its temperature is low. Reported, never folded into
+        a verdict: no reading below changes because this exists.
+        """
+        w = self.WINDOW if window is None else _frame(window)
+        recent = self.novelty[-w:]
+        if len(recent) < w:
+            return None
+        return round(sum(recent) / len(recent), 2)
+
     def territory(self) -> dict:
         """What the search has covered, for logging beside a Verdict rather than inside it."""
         return {'grounds': len(self.goals), 'tokens': len(self._seen),
                 'trailscore': trailscore(self.goals),
                 'novelty': [round(x, 2) for x in self.novelty],
+                # The frame, beside the number. A temperature quoted without its window
+                # is not a reading anyone can reproduce or compare.
+                'temperature': self.temperature(),
+                'window': self.WINDOW,
                 'steps': list(self.steps)}

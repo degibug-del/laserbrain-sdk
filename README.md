@@ -93,6 +93,37 @@ v.context     # 'ctx_1t61li9' — a stable name for the work itself
 diverge: a faithful goal can sit at high Φ while the work is genuinely hard, and a low-Φ
 reading can belong to a task nobody asked for.
 
+### Claiming, or reporting?
+
+`evidence` (`anchored`) asks whether observed work backs the claim. It cannot ask whether
+the agent was *claiming* or *reporting* in the first place — that is in the words, and the
+words had nowhere to go until `check()` started accepting the grammar's carried fields:
+
+```python
+v = hz.check(goal="fix the parser", progress="advancing", distance=4,
+             doing="ran the suite, exit 0, 31 tests passed")
+v.scores           # {..., 'evidence': 0.5, 'language': 1.0}  ← pure report
+v.claims['hits']   # [('observation', 'exit 0'), ('observation', 'tests passed')]
+
+v = hz.check(goal="fix the parser", progress="advancing", distance=4,
+             doing="this should fix it because the regex was probably wrong")
+v.scores['language']   # 0.0 — same evidence, pure cause-claim
+```
+
+The two readings disagree in both directions, which is the point: an agent that ran
+nothing but reported honestly is unanchored and truthful; one whose tests passed but who
+writes *"this should fix it"* is corroborated and still guessing. Like `evidence`, it is
+reported and **never folded into Φ**.
+
+It is a regex over a fixed phrase list — the same marker the browser instrument at
+[/field/ceiling](https://phronesis.world/field/ceiling) runs, and it inherits the same
+limits. It reads *"since"* in both its causal and temporal senses, misses paraphrase, and
+marks **language, not truth**. A low score is a prompt to look, never a finding.
+
+`claims['grounded']` is `None` when nothing matched and `0.0` when everything matched was
+a claim. Both are falsy — **test it with `is None`**. `scores` omits the key entirely
+rather than reporting a number for a step the marker never read.
+
 ## Judgment — is the work worth continuing?
 
 The check measures. It is silent on the question that actually decides what to do next.
