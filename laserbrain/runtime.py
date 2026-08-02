@@ -504,16 +504,34 @@ class Session:
         last = self.d['checks'][-1]['step'] if self.d['checks'] else 0
         return self.d['steps'] - last
 
+    def goal_shape_note(self):
+        """Advice when the ground reads as a report rather than an intention, else None.
+
+        Attached to the nudge instead of raised on its own: the observation is only useful
+        at the moment the agent is about to restate its goal, and that is exactly when the
+        nudge already speaks. See reads_as_report for why this never touches a verdict.
+        """
+        g = self.d.get('goal')
+        if not reads_as_report(g or ''):
+            return None
+        return (f'Your ground reads as a report of what happened, not what you are '
+                f'pursuing: "{str(g)[:60]}". A ground has to stay fixed while the work '
+                f'moves, and a sentence about what was just finished cannot — by the next '
+                f'step something else has been. State the goal as the thing you are trying '
+                f'to reach; it is 5x more likely to fire drift otherwise.')
+
     def nudge(self):
         """The reminder, or None. Fires every `nudge_after` steps without a spelled check
         rather than once, because one message scrolls away."""
         since = self.steps_since_check()
         if since < self.nudge_after or since % self.nudge_after:
             return None
-        return (f'laserbrain: {since} steps since your last check_state '
+        base = (f'laserbrain: {since} steps since your last check_state '
                 f'(coverage {self.coverage:.0%} over {self.d["steps"]} steps). '
                 f'dogfood.py withholds any detection result below 50%. Call check_state '
                 f'now with your CURRENT goal, progress and distance 0-10.')
+        note = self.goal_shape_note()
+        return f'{base}\n{note}' if note else base
 
     def coverage_warning(self):
         """Nudge text whenever coverage has lapsed (not only on the modulo edge).
@@ -629,6 +647,58 @@ def is_self_refusal(text: str) -> bool:
     about the world — only that the instrument stopped its own agent.
     """
     return bool(text) and bool(_SELF_REFUSAL_RE.search(text))
+
+
+# A goal written as a REPORT of what happened rather than a statement of what is being
+# pursued. Advisory only — see reads_as_report.
+#
+# Closed list, and deliberately not a generic /^\w+ed\b/. That catch-all read "Speed up the
+# build" and "Need to fix the parser" as reports, and swallowed the imperative "read
+# auth.py", whose past and present forms are identical. Measured on 1,191 readings: the
+# closed list separates fires from quiet readings at 12.2% vs 2.2% (5.4x, z = 6.87), and
+# the generic version scored no better while matching things that are plainly goals.
+_REPORT_RE = re.compile(
+    r'^\s*(?:'
+    r'confirmed|found|promoted|shipped|verified|discovered|learned|identified|determined|'
+    r'established|noted|observed|settled|decided|chose|approved|completed|finished|landed|'
+    r'merged|fixed|added|committed|created|validated|pushed|reviewed|replaced|updated|built|'
+    r'wrote|ran|removed|renamed|moved|deleted|refactored|implemented|deployed|published|'
+    r'tested|checked|design settled|build (?:blocked|failed)|blocked by'
+    r')\b', re.IGNORECASE)
+
+
+def reads_as_report(text: str) -> bool:
+    """True when a goal narrates what happened instead of naming what is being pursued.
+
+    WHY THIS IS ADVICE AND NOT A VERDICT
+
+    Reading the fires labelled false showed most were not goals at all: "Confirmed all 31
+    test files pass locally", "Promoted new-repo.json to shipped workflows", "Build blocked
+    by a stale gate", "Diego chose verdict outcome capture". The goal field was being used
+    as a progress-narration slot, so each step reported a different fact, consecutive goals
+    shared few tokens, overlap collapsed, and goal-drift fired.
+
+    That is a malformed input, not a wrong verdict. Given ⟨confirmed, 31, test, files,
+    pass⟩ the grammar behaved correctly; it was handed a sentence that cannot stay fixed,
+    because by the next step something else has been confirmed.
+
+    So this changes nothing the instrument decides. Two reasons, and the second binds:
+
+      THE EVIDENCE DOES NOT REACH THAT FAR   Narration predicts a FIRE (5.4x, z = 6.87).
+                             It does not predict a fire being WRONG: among labelled fires
+                             it runs 19.5% of the false against 14.3% of the useful, on
+                             seven useful labels. Seven cannot separate anything, and
+                             suppressing on it would be acting past the data.
+
+      THE CORPUS IS THE ASSET   Feeding this into a verdict would make every reading taken
+                             before it incomparable with every one after, silently — the
+                             same reason self_echo was kept additive in 0.41.0.
+
+    is_groundable is left alone for the reason it rejects only two things: a
+    narration-shaped goal is still a task someone is doing, and refusing it would leave the
+    session ungrounded, which is worse than grounding on an awkward string.
+    """
+    return bool(text) and bool(_REPORT_RE.match(text))
 
 
 def _looks_failed(text: str) -> bool:
