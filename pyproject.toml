@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "laserbrain"
 version = "0.41.0"
-description = "Attach the smart recursion harness to any agent loop — a provably-correct, external check for when an AI agent (or team) has drifted from its goal."
+description = "AI agents are made up of language. laserbrain is a grammatical control layer to reduce agent drift — it scores an agent's goal before execution, then checks each step against that fixed reference. Works across tools."
 readme = "README.md"
 requires-python = ">=3.9"
 license = "MIT"

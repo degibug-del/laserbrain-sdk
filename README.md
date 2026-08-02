@@ -1,7 +1,10 @@
 # laserbrain
 
-Attach the **smart recursion harness** to any agent loop — a provably-correct,
-external check for when an AI agent (or a team of agents) has drifted from its goal.
+**AI agents are made up of language. laserbrain is a grammatical control layer to reduce
+agent drift.**
+
+It scores an agent's goal before execution, then checks each step against that fixed
+reference so the agent can detect drift, spiraling, and when to stop. It works across tools.
 
 An agent watching only itself provably can't catch its own drift: each step looks
 fine next to the last while it wanders far from where it began. laserbrain is a

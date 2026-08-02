@@ -373,18 +373,31 @@ class Session:
         self._obs = Observer(self.d['goal'])
         return self.save()
 
-    def tool(self, name, args=None, ok=True):
+    def tool(self, name, args=None, ok=True, self_refusal=False):
         self.d['steps'] += 1
         self._obs.record(name, args, ok=ok)
         self.d['events'] = [{'sig': e['sig'], 'ok': e['ok']} for e in self._obs.events][-40:]
         self.d['inferred'].append({'step': self.d['steps'], 'progress': self._obs.progress(),
                                    'why': self._obs.why()})
         self.d['inferred'] = self.d['inferred'][-200:]
-        if not ok:
+        if not ok and not self_refusal:
             # A failed call is a guard failing or a test going red — dogfood ground truth,
             # recorded without anyone judging anything.
+            #
+            # `self_refusal` is the one exception, and it is the whole reason this parameter
+            # exists: the coverage gate blocking its own agent is not the world disagreeing,
+            # it is the instrument disagreeing with itself, and counting it makes the hit
+            # rate 0% by construction. See is_self_refusal.
+            #
+            # `clean` marks a catch as written by code that knows to exclude the coverage
+            # gate. It is a version stamp, not a quality claim. Catches already on disk are
+            # stored as bare "failed call: Bash" with no text kept, so a gate block cannot
+            # be told from a real failure after the fact — they are unusable for sensitivity
+            # and sensitivity.py drops anything without this flag. Dating them would not
+            # work: the fix landed mid-session, so the contaminated catches share a date
+            # with the clean ones.
             self.d['catches'].append({'step': self.d['steps'], 'by': 'build',
-                                      'what': f'failed call: {name}',
+                                      'what': f'failed call: {name}', 'clean': True,
                                       **self.attribute()})
         return self.save()
 
@@ -544,7 +557,7 @@ class Session:
                        run=v.get('run'), run_step=v.get('run_step'))
             return None
         if kind == 'tool':
-            self.tool(tool, args, ok)
+            self.tool(tool, args, ok, self_refusal=is_self_refusal(text))
             return self.nudge()
         return None
 
@@ -568,7 +581,10 @@ _FAIL_PATTERNS = [
     r'permission denied',
     r'^\s*Traceback \(most recent call last\)',
     r'\bBUILD FAILED\b', r'\bEXPORT FAILED\b', r'\bARCHIVE FAILED\b',
-    r'\bTHIS CALL DID NOT RUN\b',       # a hook denied it — a real, independently-caught stop
+    # A hook denied it. Independent ground truth for the safety block and the claim gate —
+    # both catch a condition outside the instrument. NOT for the coverage gate, which is
+    # filtered by _SELF_REFUSAL_RE below before this pattern is ever consulted.
+    r'\bTHIS CALL DID NOT RUN\b',
     r'\bfatal:', r'\bfatal error\b',
     r'^\s*FAIL\b',
     r'\bexit code [1-9]', r'\bexit status [1-9]',
@@ -583,6 +599,38 @@ _NOT_FAIL_RE = re.compile(
     re.IGNORECASE)
 
 
+# The coverage gate's own refusal, which must never become a catch.
+#
+# THE CIRCLE, measured 2026-08-02. sensitivity.py reported 0 hits and 8 misses — a 0.0%
+# hit rate — and every one of the eight was this gate blocking a call in the session that
+# was analysing it. The number was not a measurement. It was an identity:
+#
+#   the coverage gate fires BECAUSE the instrument has been quiet (a lapse IS "too many
+#   steps since check_state"), the block exits non-zero, the non-zero exit is recorded as
+#   a catch, and the reading live at that moment is by definition a quiet one.
+#
+# So a coverage-gate catch can never coincide with a fire, and the hit rate it produces is
+# 0% before any data is collected. The comment above _FAIL_PATTERNS already named the rule
+# this breaks — "a false catch is strictly worse than a missed one: it would let the
+# instrument grade itself against noise it generated" — and this was the instrument
+# grading itself against exactly that.
+#
+# Anchored on "laserbrain gate:" WITH the coverage clause, which is narrow on purpose.
+# "laserbrain claim gate:" (another agent holds the path) and "laserbrain safety:"
+# (rm -rf and friends) each catch a condition the instrument did not create, and both
+# remain catches.
+_SELF_REFUSAL_RE = re.compile(r'laserbrain gate:.*?\bcoverage\b', re.IGNORECASE | re.DOTALL)
+
+
+def is_self_refusal(text: str) -> bool:
+    """True when this result is the coverage gate refusing, rather than work failing.
+
+    Not ground truth in either direction: the call did not run, so nothing was proved
+    about the world — only that the instrument stopped its own agent.
+    """
+    return bool(text) and bool(_SELF_REFUSAL_RE.search(text))
+
+
 def _looks_failed(text: str) -> bool:
     """True when the TEXT of a tool result carries an unambiguous failure signature.
 
@@ -590,6 +638,8 @@ def _looks_failed(text: str) -> bool:
     failure — so this catches the large class of tools that report failure in prose.
     """
     if not text:
+        return False
+    if is_self_refusal(text):
         return False
     if _NOT_FAIL_RE.search(text):
         return False
