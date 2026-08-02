@@ -32,7 +32,11 @@ include = ["laserbrain*"]
 # the file is on disk, and only a pip install is quietly running different constants.
 # The shipped workflow library travels the same way and for the same reason: a pip
 # install cannot reach the repo it came from.
-laserbrain = ["py.typed", "grammar.json", "workflows/*.json"]
+# attention.json is the measured check-in calibration. Its absence is handled gracefully —
+# attention.py reports "no calibration installed" rather than throwing — which is precisely
+# why it has to be listed here: a wheel missing it would not fail, it would just decline to
+# answer, on every install, forever, while the repo worked fine.
+laserbrain = ["py.typed", "grammar.json", "attention.json", "workflows/*.json"]
 
 [project.optional-dependencies]
 # The default grammar has no dependencies and never will. This is opt-in, for agents
