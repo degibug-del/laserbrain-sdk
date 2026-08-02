@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.41.0 - 2026-08-01
+
+**The dialogue surface gets a public name and one new field. No verdict moved.**
+
+Building a chatbot on laserbrain made someone the first outside consumer of the dialogue
+path, and it surfaced two things that only show up from outside.
+
+  · `Dialogue` is public. `Team.run()` runs a whole scripted team; there was no public way
+    to drive a conversation TURN BY TURN — which is the shape of the most ordinary dialogue
+    there is, one person and one agent. The consumer had to import `_Dialogue` and
+    `_asdist` by their private names. Same object, now reachable: `Dialogue = _Dialogue`,
+    with the underscored name kept as an alias because `Team` and the suite already use it.
+    `asdist` is exported for the same reason — a caller feeding Dialogue needs the same
+    0–10 clamp the harness uses.
+
+  · `self_echo` joins every reading. `echo` compares a speaker to the OTHER agents, which
+    is the right question for a team and silent on a different one: is this speaker going
+    in circles? With a single speaker `others` is empty, echo is 0.00 forever, and
+    echo-spiral cannot fire in a two-party conversation at all.
+
+**`self_echo` is additive and deliberately does not touch a verdict.** Feeding it into the
+echo-spiral condition is a one-line change and was not made: it would alter when a
+published verdict fires, and every reading taken before this version would stop being
+comparable with every reading after it — silently, with nothing in the data to say so. The
+corpus is the asset; a field beside it is cheap. A consumer who wants to act on the number
+can threshold it against `cal.echo_min` themselves.
+
+`test_dialogue_public.py` replays five verdicts against their 0.40.0 behaviour, so a future
+change that does move one has to move that file too.
+
 ## 0.40.0 - 2026-08-01
 
 **A catch can now name the reading that was live when it happened, so sensitivity is

@@ -26,7 +26,7 @@ from pathlib import Path as _Path
 
 __all__ = ['Harness', 'Team', 'Verdict', 'PRESETS', 'norm', 'laserscore', 'context_id',
            'verify_audit', 'ground_score', 'MAX_DEPTH']
-__version__ = '0.40.0'
+__version__ = '0.41.0'
 MAX_DEPTH = 50   # nesting deeper than this is a drift signal, not a decomposition
 API_DEFAULT = 'https://laserbrain-mcp.degibug.workers.dev'
 
@@ -1534,9 +1534,10 @@ class _Dialogue:
         pos = norm(position)
         d = _asdist(distance)
 
-        def emit(reason, drifting, advice, echo=0.0):
+        def emit(reason, drifting, advice, echo=0.0, self_echo=0.0):
             self.turns.append({'agent': agent, 'pos': pos, 'reason': reason, 'drifting': drifting})
-            return {'reason': reason, 'drifting': drifting, 'echo': round(echo, 2), 'dist': d, 'advice': advice}
+            return {'reason': reason, 'drifting': drifting, 'echo': round(echo, 2),
+                    'self_echo': round(self_echo, 2), 'dist': d, 'advice': advice}
 
         if self.goal and not self.turns and not restated_goal and not pos:
             pass
@@ -1551,6 +1552,19 @@ class _Dialogue:
             return emit('ungrammatical', True, 'This agent cannot spell its position.')
         others = [set(t['pos']) for t in self.turns[-3:] if t['agent'] != agent]
         echo = max((_sim(pos, o) for o in others), default=0.0)
+        # ADDITIVE ONLY — reported, never acted on. `echo` compares a speaker to the OTHERS,
+        # which is the right question for a team: are these agents converging? It is silent
+        # on a different and equally real one — is this speaker going in circles? With a
+        # single speaker `others` is empty and echo is 0.00 forever, so echo-spiral cannot
+        # fire in a two-party conversation. Building a chatbot on this hit it immediately.
+        #
+        # It would be easy to feed self_echo into the echo-spiral condition. That is
+        # deliberately NOT done: it would change when a published verdict fires, and every
+        # reading taken before this version would stop being comparable to every reading
+        # after it. The corpus is the asset. A consumer who wants to act on self_echo can
+        # threshold it themselves against cal.echo_min — the number is right here.
+        mine = [set(t['pos']) for t in self.turns[-3:] if t['agent'] == agent]
+        self_echo = max((_sim(pos, m) for m in mine), default=0.0)
         self.echo_hist.append(echo)
         mean_echo = sum(self.echo_hist[-3:]) / len(self.echo_hist[-3:])
         self.dist_hist.append(d)
@@ -1558,13 +1572,13 @@ class _Dialogue:
         w = self.cal.dialogue_window
         stalled = len(dh) > w and dh[-1] >= dh[-1 - w]
         if restated_goal and _sim(norm(restated_goal), self.goal) < self.cal.goal_min:
-            return emit('topic-drift', True, 'The dialogue has left the shared goal — return to it.', echo)
+            return emit('topic-drift', True, 'The dialogue has left the shared goal — return to it.', echo, self_echo)
         last = self.turns[-1]['reason'] if self.turns else None
         if stalled and mean_echo >= self.cal.echo_min:
-            return emit('echo-spiral', last == 'echo-spiral', 'The agents agree while the goal gets no closer — break the loop.', echo)
+            return emit('echo-spiral', last == 'echo-spiral', 'The agents agree while the goal gets no closer — break the loop.', echo, self_echo)
         if stalled:
-            return emit('deliberation-stall', last == 'deliberation-stall', 'No progress toward the shared goal — return to it.', echo)
-        return emit('advancing', False, f'On track — closing on the goal (dist {d}).', echo)
+            return emit('deliberation-stall', last == 'deliberation-stall', 'No progress toward the shared goal — return to it.', echo, self_echo)
+        return emit('advancing', False, f'On track — closing on the goal (dist {d}).', echo, self_echo)
 
 
 _ALL_MODES = ['ungrammatical', 'topic-drift', 'echo-spiral', 'deliberation-stall', 'goal-drift', 'stalled', 'self-report:stuck', 'self-report:circling']
@@ -1595,6 +1609,21 @@ def _style_return(reason, role):
         return False
     acts = set(role['modes']) if role.get('modes') else _DEPTH.get(role['recurse'], _DEPTH['balanced'])
     return reason in acts
+
+
+
+# ── the public name ───────────────────────────────────────────────────────────
+# `Team` runs a whole scripted team through `.run()`. There was no public way to drive a
+# dialogue TURN BY TURN, which is the shape of the most ordinary conversation there is: one
+# person and one agent. The first outside consumer — a chatbot built on this in August 2026
+# — had to import `_Dialogue` and `_asdist` by their private names to do it.
+#
+# The object was always the right one; only its name said otherwise. `Dialogue` is that
+# object, unchanged. The underscored name stays as an alias because `Team` and the test
+# suite already use it, and renaming a working internal to make a point is how a release
+# breaks something for no gain.
+Dialogue = _Dialogue
+asdist = _asdist    # 0-10 clamp; a consumer feeding Dialogue needs the same one
 
 
 class Team:
