@@ -1724,6 +1724,16 @@ __all__ += ['read_field', 'speak_to_field', 'field_vocabulary', 'FieldGround', '
             'residue', 'contaminated', 'stale_gate',
             'unfalsified', 'instrument_blind', 'unrun']
 
+# The check-in scheduler. Exported by NAME as well as by module, and the comment above about
+# Bugfinder is exactly why: attention.py shipped reachable only as
+# laserbrain.attention.risk, which nothing documents and nothing imports. Every name
+# resolved, the package imported, the tests passed, and the module was invisible — the same
+# shape as parent_goal being received and silently discarded, which held its adoption at
+# 0.2% while looking implemented.
+from . import attention                                          # noqa: E402
+from .attention import risk, next_check_in, advise               # noqa: E402
+__all__ += ['attention', 'risk', 'next_check_in', 'advise']
+
 # ── 14 of 14 · every capability, one import ───────────────────────────────────
 # The package carried 10 of the 14 things laserbrain can do; the other four were
 # reachable only over MCP or only from a local file, so which subset you got depended

@@ -44,7 +44,8 @@ import bisect
 import json
 import pathlib
 
-__all__ = ['risk', 'next_check_in', 'advise', 'describe', 'table', 'BANDS']
+__all__ = ['risk', 'next_check_in', 'advise', 'describe', 'table', 'BANDS',
+           'agent_risk', 'AGENT']
 
 _PATH = pathlib.Path(__file__).parent / 'attention.json'
 
@@ -61,6 +62,7 @@ def _load():
 
 _CAL = _load()
 BANDS = _CAL.get('bands', [])
+AGENT = _CAL.get('agent_clock') or {}
 
 
 def table():
@@ -136,6 +138,52 @@ def advise(seconds, tolerance=0.25):
     if nxt is None:
         return head + ' No measured band ahead crosses your tolerance.'
     return head + f' Expected to cross {tolerance * 100:.0f}% in {nxt / 60:.0f} min.'
+
+
+def agent_risk(steps):
+    """The agent's OWN clock: drift against steps since it last spelled its state.
+
+    Returns the same shape as risk(), plus 'censored' — True once the gap exceeds the
+    point where the coverage gate stops the sample being about agents and starts being
+    about the gate.
+
+    WHY THIS IS NOT A SCHEDULE, WHILE risk() IS
+
+    Two clocks, and only one of them is free. Time since the user spoke is external:
+    laserbrain does not control it, the bands are whatever they are, and they are strong.
+    Steps since the agent's own last check is internal, and the coverage gate forces a
+    check at 4 steps — so 85% of every gap ever recorded lands in 4-7, and gaps of 8 or
+    more are 0.3% of the sample. The interval cannot be evaluated against data the
+    interval produced.
+
+    Inside the range the gate permits, the effect is small and not significant. That is
+    reported, not buried, and it is NOT evidence that the interval does not matter: a flat
+    line drawn through a censored sample is a fact about the censoring.
+
+    So there is no agent_next_check_in(). Offering one would dress a policy up as a
+    measurement, which is the thing this module exists to refuse.
+
+    WHAT IT MEASURES ABOUT SELF-MODELS, which is the part worth arguing over
+
+    An agent's own account of how long it has gone unwatched is a model of its own
+    attention. Set beside the external clock, this says that model does not track what
+    predicts the agent's failure — the outside view does, several sigma harder. `anchored`
+    in the grammar names the same quantity from the other end: how much of Φ's weight rests
+    outside the agent's account of itself. Both are measurements of a self-model's
+    load-bearing capacity, and both currently say: not much.
+    """
+    s = max(0, int(steps))
+    bands = AGENT.get('bands') or []
+    cut = AGENT.get('censored_beyond_steps')
+    censored = cut is not None and s >= cut
+    for b in bands:
+        if b.get('from_steps', 0) <= s <= b.get('to_steps', 10 ** 9):
+            return {'band': b['label'], 'rate': b.get('rate'), 'n': b.get('n', 0),
+                    'drift': b.get('drift', 0),
+                    'known': b.get('rate') is not None and not censored,
+                    'censored': censored}
+    return {'band': None, 'rate': None, 'n': 0, 'drift': 0, 'known': False,
+            'censored': censored}
 
 
 def describe():

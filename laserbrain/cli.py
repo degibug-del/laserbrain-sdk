@@ -220,6 +220,46 @@ def _store(args: argparse.Namespace) -> int:
     return 2
 
 
+def _attention(args: argparse.Namespace) -> int:
+    """The check-in schedule, and the agent clock beside it.
+
+    Both are printed, always, and that is the point of the subcommand rather than an
+    accident of layout. The human clock is strong and the agent's own clock is flat and
+    censored by the gate that produced it; showing only the first would be selling a
+    schedule while hiding that the instrument cannot audit its own interval.
+    """
+    from . import attention as _at
+    if args.since is None:
+        print()
+        print(_at.describe())
+        ag = _at.AGENT
+        if ag.get('bands'):
+            print()
+            print('the agent\'s own clock — steps since it last spelled its state')
+            print()
+            for b in ag['bands']:
+                rate = ('unmeasured' if b.get('rate') is None
+                        else f"{b['rate'] * 100:5.1f}%")
+                print(f"  {b['label']:<14} {b.get('drift', 0):>4}/{b.get('n', 0):<5} {rate}")
+            if ag.get('z_between_best_powered') is not None:
+                pair = ag.get('best_powered_pair') or ['?', '?']
+                print(f"\n  z = {ag['z_between_best_powered']} between {pair[0]} and "
+                      f"{pair[1]} (n = {ag.get('best_powered_n')})")
+            print(f"\n  {ag.get('censoring', '')}")
+        print()
+        return 0
+    print()
+    print(f'  {_at.advise(args.since, args.tolerance)}')
+    nxt = _at.next_check_in(args.since, args.tolerance)
+    if nxt:
+        # Under 90s prints as seconds. Rounding a 30-second wait to "0 min" said the
+        # opposite of what it meant — 0 is the value this function returns for "look
+        # now" — so a half-minute of headroom read as an alarm.
+        print(f'  next look: {nxt:.0f}s' if nxt < 90 else f'  next look: {nxt / 60:.0f} min')
+    print()
+    return 0
+
+
 def _coverage(args: argparse.Namespace) -> int:
     """How much of your work the harness actually watched.
 
@@ -290,6 +330,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     k = sub.add_parser("key", help="get a free API key, and see what it allows")
     k.add_argument("--new", action="store_true",
                    help="fetch another key even if one is already stored")
+    at = sub.add_parser("attention",
+                        help="when a person should look, from how long the agent has run")
+    at.add_argument("--since", type=float, default=None, metavar="SECONDS",
+                    help="seconds since the user last spoke; omit to print the table")
+    at.add_argument("--tolerance", type=float, default=0.25,
+                    help="drift rate you are willing to accept (default 0.25)")
     sub.add_parser("mcp", help="run as an MCP server on stdin/stdout (offline, no key)")
     sub.add_parser("version", help="print the version")
 
@@ -301,6 +347,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.cmd == "coverage":
         args.dir = args.dir.replace("~", __import__("os").path.expanduser("~"))
         return _coverage(args)
+    if args.cmd == "attention":
+        return _attention(args)
     if args.cmd == "verify":
         return _verify(args)
     if args.cmd == "store":
