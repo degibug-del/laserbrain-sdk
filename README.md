@@ -191,6 +191,65 @@ what you were working on. Local only, never transmitted. Delete the file to forg
 everything; the harness rebuilds it and loses only its history. Writes are taken under a
 lockfile so the MCP server and this package can share one store without losing counts.
 
+## Attention — when should a person look?
+
+Everything above answers a question about one step. This answers a different one, and it
+consults no verdict at all: **how long has this run gone unattended, and what does that
+predict?**
+
+```python
+import laserbrain as lb
+
+lb.risk(900)
+# {'band': '5-30 minutes', 'rate': 0.3852, 'n': 257, 'drift': 99, 'known': True}
+
+lb.next_check_in(elapsed=0, tolerance=0.25)
+# 300.0    seconds until the expected drift rate crosses 25%
+
+lb.advise(2400)
+# '40 min since you last spoke. In "over 30 minutes", 19 of 22 readings were
+#  goal-drift (86%). That is past your tolerance — worth a look.'
+```
+
+```
+laserbrain attention                # the table, with the agent's own clock beside it
+laserbrain attention --since 900    # one sentence, and when to look next
+```
+
+Drift against time since the user last spoke, measured on the shipped corpus:
+
+| since a person spoke | goal-drift | rate |
+|---|---|---|
+| under a minute   |    0 / 29    | **0.0%** |
+| 1-5 minutes      |   40 / 209   | **19.1%** |
+| 5-30 minutes     |   99 / 257   | **38.5%** |
+| over 30 minutes  |   19 / 22    | **86.4%** |
+
+z = 4.548 between the two best-powered bands (n = 466).
+
+**Why it asks no verdict.** Precision on clearly-labelled fires is 14.6%. The per-step
+question is contested; the per-clock question is not, and answering it needs only a
+timestamp. An agent scoring itself generously cannot move these numbers, because it is
+never asked.
+
+**It refuses rather than guesses.** A band with fewer than `20` readings carries
+`rate: null`, `known: False`, and every function propagates it — `next_check_in` will not
+return a time that rests on an underpowered band. A schedule built on an invented rate is
+worse than no schedule, because it looks like one.
+
+**The agent's own clock is reported with its censoring.** `lb.attention.agent_risk(steps)`
+gives drift against steps since the agent last spelled its state — and returns
+`censored: True` past 8 steps, because the coverage gate forces a
+check at 4 and gaps that long are 0.31% of the sample. The interval
+cannot be evaluated against data the interval produced, so there is deliberately no
+`agent_next_check_in()`.
+
+**The calibration is measured, and it is not yours.** `attention.json` ships with the
+package and was computed from one machine, 93% one agent,
+2026-07-28 to 2026-08-03. It carries that caveat in its own provenance block.
+Recompute it against your own corpus rather than inheriting these habits — the numbers are a
+starting point, not a constant.
+
 ## The grammar — bring your own
 
 The theorem blesses *a* fixed reference, never a particular vocabulary. The default is
