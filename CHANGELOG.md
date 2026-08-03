@@ -1,5 +1,52 @@
 # Changelog
 
+## 0.42.0 - 2026-08-02
+
+**A schedule that reads a clock instead of a verdict, and three places the instrument was
+grading itself.**
+
+Precision on clearly-labelled fires is 14.6% — 7 useful against 41 false, with 171 too
+ambiguous to call. Chasing that number found the same defect three times in different
+clothes: something computed, shown, and then dropped or fed back to itself before anything
+could check it.
+
+  · `attention` — a check-in schedule. `risk(seconds)`, `next_check_in(elapsed, tolerance)`,
+    `advise(seconds)`, plus `laserbrain attention` and an MCP tool. It answers "how long
+    has this run gone unattended, and what does that predict" from a measured calibration
+    and a clock, consulting NO verdict — which is why it can answer at all while per-step
+    precision is what it is. Drift climbs 0% under a minute to 86% past thirty, z = 4.55 on
+    n = 466. The calibration ships as `attention.json`, is written from the corpus by
+    `calibrate_attention.py` rather than typed, and carries its own provenance: one machine,
+    93% one agent, not a constant of anything.
+
+  · The gate stopped counting as evidence against itself. A coverage-gate block exits
+    non-zero, and a non-zero exit was recorded as a catch — so the block landed on a quiet
+    reading BY CONSTRUCTION, because the gate fires precisely when the instrument has been
+    quiet. Sensitivity's first real run returned 0 hits and 8 misses on exactly that: an
+    identity wearing a measurement's clothes. Coverage-gate refusals are now excluded at the
+    point of recording; the claim gate and the safety block still count, because both catch
+    a condition the instrument did not create. New catches carry `clean: True`; older ones
+    cannot be decontaminated and are dropped whole.
+
+  · `reads_as_report(text)` — advisory only, and deliberately not a verdict. Most fires
+    labelled false were not goals at all but status reports in the goal slot: "Confirmed all
+    31 test files pass", "Build blocked by a stale gate". Each step narrates a different
+    fact, overlap collapses, and goal-drift fires correctly on a sentence that was never
+    able to stay fixed. That is a malformed input, not a wrong verdict. It separates fires
+    from quiet readings 12.2% vs 2.2% (5.4x, z = 6.87) but does NOT separate false fires
+    from useful ones, so it changes nothing the instrument decides — it rides the nudge,
+    where the agent is about to restate its goal anyway. `is_groundable` is untouched.
+
+  · `agent_risk(steps)` — the agent's own clock, reported with its censoring rather than as
+    a schedule. Steps since the agent last spelled its state runs 8.0% to 11.0%, z = 1.35,
+    and 85% of every gap ever recorded sits in 4-7 because the coverage gate puts it there.
+    The interval cannot be evaluated against data the interval produced. So it answers
+    inside the permitted range, returns `censored: true` beyond it, and there is
+    deliberately no `agent_next_check_in()`.
+
+No verdict moved. Every reading taken before this release is comparable with every reading
+after it, which is the property that makes the corpus worth keeping.
+
 ## 0.41.0 - 2026-08-01
 
 **The dialogue surface gets a public name and one new field. No verdict moved.**
