@@ -1,10 +1,19 @@
 """
 laserbrain — attach the smart recursion harness to any agent loop.
 
-The check is a pure function, so it runs LOCALLY and free (the open grammar, no
-key, no latency). Give it a key and it also mirrors to the API for retained drift
-history, alerts and the fleet view — you pay to *see* your agents drift, not for
-the check. Model-agnostic: you provide the agent, laserbrain closes the loop.
+The check is a pure function, so it runs LOCALLY and free — the open grammar, no
+key, no latency, no account. That is `ground`, and it is the whole instrument: the
+SDK writes every session to disk and keeps it forever, so there is nothing about
+one machine you have to pay for.
+
+What a key buys is a PLACE. `group` lets several machines meet — one view across
+them, shared history, a ground that outlives the process that set it. `pro` adds
+more machines and the statistics over them. You are paying for somewhere to meet,
+not for the detector.
+
+    phronesis.world/laserbrain
+
+Model-agnostic: you provide the agent, laserbrain closes the loop.
 
     from laserbrain import Harness
     hz = Harness()                                  # local + free (add key=... to retain)

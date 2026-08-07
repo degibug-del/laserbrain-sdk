@@ -135,17 +135,25 @@ def _key(args: argparse.Namespace) -> int:
     print()
     print(f"  {_c('this key is on the ' + str(tier.get('name', 'ground')) + ' tier', BOLD)}, and it allows:")
     for label, field, unit in (('reads', 'reads', '/day'), ('writes', 'writes', '/day'),
-                               ('field history', 'historyHours', 'h'),
+                               # 'field history' / historyHours is NOT displayed. The
+                               # laserfield hub was destroyed 2026-08-03 and the Worker
+                               # stopped serving read_field / speak_to_field with it, so a
+                               # key buys no field history at any tier. The API still
+                               # returns the number; printing it advertises a capability
+                               # that does not exist. Remove it from tiers.ts and this
+                               # comment goes too.
                                ('drift retained', 'driftDays', ' days')):
         v = tier.get(field)
         if v is not None:
             print(f"    {label:16} {v}{unit}")
     print()
-    print("  " + _c("what it adds:", BOLD) + " retained drift history, the field, and a self that")
-    print("  survives a session. " + _c("What stays free without it:", BOLD) + " the check itself —")
-    print("  Harness.check is a pure local function and never calls anything.")
+    print("  " + _c("what it adds:", BOLD) + " a place several machines can meet — one view")
+    print("  across them, shared history, a ground that outlives the process that set it.")
+    print("  " + _c("What stays free:", BOLD) + " the whole instrument. Harness.check is a pure local")
+    print("  function, it never calls anything, and the SDK keeps every session on disk.")
     print()
-    print("  " + _c("You pay to SEE your agents drift, not for the detector.", DIM))
+    print("  " + _c("You pay for somewhere to meet, not for the detector.", DIM))
+    print("  " + _c("phronesis.world/laserbrain", DIM))
     print()
     return 0
 
