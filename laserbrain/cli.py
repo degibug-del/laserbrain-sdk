@@ -306,6 +306,87 @@ def _coverage(args: argparse.Namespace) -> int:
     return 0
 
 
+def _write(args):
+    """Train the chain on what you give it, then write from the ground.
+
+    The chain is trigram-with-backoff and about forty lines — deliberately the dumbest
+    thing that works, because the model is not the idea. The decoder is: at every word the
+    candidates are scored by model probability AND by displacement from the ground, and the
+    one that keeps the text on its goal wins. Untrained, it has nothing to say — so this
+    refuses rather than emitting the ground back at you dressed as output.
+    """
+    import sys
+    from .write import Writer
+
+    docs = []
+    if args.train:
+        for path in args.train:
+            try:
+                docs.append(open(path.replace("~", __import__("os").path.expanduser("~"))).read())
+            except OSError as e:
+                print(f"cannot read {path}: {e}", file=sys.stderr)
+                return 2
+    elif not sys.stdin.isatty():
+        docs.append(sys.stdin.read())
+
+    if not any(d.strip() for d in docs):
+        print("nothing to train on — pass --train FILE, or pipe text in.\n"
+              "  laserbrain write 'the ground state' --train notes.md\n"
+              "  cat *.md | laserbrain write 'the ground state'", file=sys.stderr)
+        return 2
+
+    w = Writer(seed=args.seed).train(docs)
+    out = w.write(args.ground, words=args.words, pull=args.pull)
+    print(out)
+    # The grounding of what it just wrote, on stderr so a pipe carries only the text.
+    print(f"\n  grounding {w.grounding(out, args.ground):.2f}   ground {args.ground!r}",
+          file=sys.stderr)
+    return 0
+
+
+def _read(args):
+    """Read the shape of a text: circling, connected, loose, or too short to say.
+
+    Connectivity is optional and defaults to 0. The term that catches circling is variety,
+    which needs nothing but the text — so a reading without a network call is honest and
+    useful, and refusing to give one would not be.
+    """
+    import json
+    import sys
+    from .reading import read as _r
+
+    text = args.text
+    if text is None:
+        if sys.stdin.isatty():
+            print("no text — pass it as an argument or pipe it in:\n"
+                  "  laserbrain read 'the text to read'\n"
+                  "  cat draft.md | laserbrain read", file=sys.stderr)
+            return 2
+        text = sys.stdin.read()
+
+    r = _r(text, connectivity=args.connectivity)
+    if args.json:
+        print(json.dumps(r))
+        return 0
+
+    print(f"  words         {r['words']}")
+    print(f"  variety       {r['variety']:.2f}"
+          + ("   the same handful of words is doing the work" if r['circling'] else ""))
+    if args.connectivity:
+        print(f"  connectivity  {r['connectivity']:.2f}")
+    print(f"  shape         {r['shape']}")
+    # What the shape supports saying, and nothing beyond it. These are descriptions, not
+    # grades: the underlying numbers do not carry quality and must not be reported as if
+    # they did. That mistake is the reason the variety term exists at all.
+    print("  " + {
+        'short': "too short to read a shape from — under 12 words",
+        'circling': "circling: coming back to the same terms rather than moving through them",
+        'connected': "connected: the terms tie together and vary",
+        'loose': "loose: varied, but the terms are not tying to each other",
+    }[r['shape']])
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="laserbrain", description="the smart recursion harness — in your terminal")
     p.add_argument("-V", "--version", action="version", version=f"laserbrain {__version__}")
@@ -337,11 +418,38 @@ def main(argv: Sequence[str] | None = None) -> int:
     at.add_argument("--tolerance", type=float, default=0.25,
                     help="drift rate you are willing to accept (default 0.25)")
     sub.add_parser("mcp", help="run as an MCP server on stdin/stdout (offline, no key)")
+    # WRITING AND READING, added 2026-08-05. Both already existed in the package and
+    # neither could be reached from a terminal: Writer had an MCP tool and no command, and
+    # reading had neither — it lived only in the site's TypeScript. A capability with no
+    # command line is a capability only a program can use, and the first thing anyone does
+    # with an instrument is try it by hand.
+    wr = sub.add_parser("write",
+                        help="write from a ground state — the harness as a decoder")
+    wr.add_argument("ground", help="the ground state to stay near, in words")
+    wr.add_argument("--words", type=int, default=60, help="how many words (default 60)")
+    wr.add_argument("--pull", type=float, default=1.0,
+                    help="how hard the ground pulls against model probability (default 1.0)")
+    wr.add_argument("--train", metavar="PATH", action="append", default=None,
+                    help="a file to train the chain on; repeatable. omit to read stdin")
+    wr.add_argument("--seed", type=int, default=None, help="fix the sampling seed")
+
+    rd = sub.add_parser("read",
+                        help="read the shape of a text — is it circling, connected, loose")
+    rd.add_argument("text", nargs="?", default=None,
+                    help="the text; omit to read stdin")
+    rd.add_argument("--connectivity", type=float, default=0.0,
+                    help="spectral connectivity 0-1 from the analyzer, if you have it")
+    rd.add_argument("--json", action="store_true", help="machine-readable output")
+
     sub.add_parser("version", help="print the version")
 
     args = p.parse_args(argv)
     if args.cmd == "demo":
         return _demo()
+    if args.cmd == "write":
+        return _write(args)
+    if args.cmd == "read":
+        return _read(args)
     if args.cmd == "check":
         return _check(args)
     if args.cmd == "coverage":

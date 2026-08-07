@@ -36,7 +36,8 @@ def _link_log_default():
     still used when it exists and the new one does not, so an un-migrated machine keeps its
     history instead of silently starting over.
     """
-    base = Path.home() / '.config' / 'laserbrain'
+    from . import _paths as _P
+    base = _P.config_dir()
     new, old = base / 'link.jsonl', base / 'tandem.jsonl'
     return old if (old.exists() and not new.exists()) else new
 

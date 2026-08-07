@@ -57,6 +57,13 @@ def run_gate(ev, env=None, link=None, session=None, sid='test-gate-sid'):
             (fake_home / '.claude' / 'laserbrain' / f'{sid}.json').write_text(
                 json.dumps(session))
         env['HOME'] = str(fake_home)
+        # AND CLEAR THE ROOT OVERRIDES, because this suite isolates via HOME and lb_paths
+        # deliberately ranks LASERBRAIN_HOME above the HOME-derived default. run-tests.sh
+        # exports LASERBRAIN_HOME for every suite, so without this the hook resolves to the
+        # runner's temp root and never sees the session file written into fake_home — the
+        # precedence working exactly as documented, against a test that predates it.
+        for _v in ('LASERBRAIN_HOME', 'LASERBRAIN_STATE_DIR'):
+            env.pop(_v, None)
         # also clear agent unless set
         proc = subprocess.run(
             [sys.executable, str(HOOK)],

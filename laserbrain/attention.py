@@ -178,7 +178,18 @@ def agent_risk(steps):
     censored = cut is not None and s >= cut
     for b in bands:
         if b.get('from_steps', 0) <= s <= b.get('to_steps', 10 ** 9):
-            return {'band': b['label'], 'rate': b.get('rate'), 'n': b.get('n', 0),
+            # A CENSORED BAND QUOTES NO RATE. It used to return the band's number with
+            # `known: False` beside it — so a caller reading `rate` got 0.0 for the region
+            # past the gate, which renders "we cannot see out there" as "the risk out there
+            # is zero". That is the most dangerous available misreading, and it is the same
+            # error this module's own docstring warns about one paragraph up: a flat line
+            # drawn through a censored sample is a fact about the censoring.
+            #
+            # `n` and `drift` are kept, because how few observations there are is exactly
+            # what the caller should see instead.
+            return {'band': b['label'],
+                    'rate': None if censored else b.get('rate'),
+                    'n': b.get('n', 0),
                     'drift': b.get('drift', 0),
                     'known': b.get('rate') is not None and not censored,
                     'censored': censored}

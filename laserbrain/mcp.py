@@ -219,6 +219,26 @@ def _capabilities(args: dict) -> dict:
     }
 
 
+def _read_text(args: dict) -> dict:
+    """Read the shape of a text: circling, connected, loose, or too short to say.
+
+    The companion to write_grounded. That one holds GENERATION to a ground; this one asks
+    what shape a piece of writing is already in — and the term that answers it, variety,
+    needs no model, no network and no key.
+
+    `connectivity` is optional because it is the one term this cannot compute: it is a
+    spectral quantity over a discourse graph and belongs to the analyzer. A reading without
+    it is honest and useful, which is why it defaults to 0 rather than being required.
+    """
+    from .reading import read as _r
+    text = args.get('text') or ''
+    try:
+        conn = float(args.get('connectivity') or 0.0)
+    except (TypeError, ValueError):
+        conn = 0.0
+    return _r(text, connectivity=conn)
+
+
 TOOLS: dict[str, dict[str, Any]] = {
     'check_state': {
         'fn': _check_state,
@@ -328,6 +348,25 @@ TOOLS: dict[str, dict[str, Any]] = {
                        'kind': {'type': 'string', 'enum': ['workflow', 'team']},
                    },
                    'required': ['name']},
+    },
+    'read_text': {
+        'fn': _read_text,
+        'description': (
+            'Read the shape of a text — circling, connected, loose, or too short to say. The '
+            'companion to write_grounded: that one holds generation to a ground, this one asks '
+            'what shape writing is already in. Offline, no model, no key. Repetition RAISES the '
+            'spectral score, so variety is the term that catches someone circling one thought.'),
+        'schema': {
+            'type': 'object',
+            'properties': {
+                'text': {'type': 'string', 'description': 'The text to read.'},
+                'connectivity': {'type': 'number',
+                                 'description': 'Spectral connectivity 0-1 from the analyzer, '
+                                                'if you have it. Optional — variety alone '
+                                                'catches circling.'},
+            },
+            'required': ['text'],
+        },
     },
 }
 

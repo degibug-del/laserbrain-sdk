@@ -27,7 +27,8 @@ _HEAD = {'content-type': 'application/json',
 # Where `laserbrain key` puts the key it fetches. Same directory link.py already uses,
 # because two config conventions in one package is how a machine ends up with a key the
 # SDK cannot find.
-KEY_PATH = pathlib.Path.home() / '.config' / 'laserbrain' / 'key'
+from . import _paths as _P
+KEY_PATH = _P.config('key')
 
 
 class ServiceUnavailable(RuntimeError):
