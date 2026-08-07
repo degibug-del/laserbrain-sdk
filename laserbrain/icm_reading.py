@@ -1,6 +1,6 @@
 """The ICM Reading contract, agent side.
 
-WHAT THIS IS FOR. "Integrated Coherence Model" has been describing something true and
+WHAT THIS IS FOR. "Integrated Coherence Machine" has been describing something true and
 unenforced: laserbrain reads agents, the phronesis surfaces read people, both implement
 displacement from a reference that cannot be revised, and they share no code. Two
 implementations of one idea that have never been made to agree is the condition that let
