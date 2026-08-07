@@ -63,6 +63,33 @@ if [ "${1:-}" = "--list" ]; then
   printf '  %s\n' "${MUTATIONS[@]%%|*}"; exit 0
 fi
 
+# ── PRIVATE STATE ROOT, and this file needs it more than any other ──────────────────────
+#
+# This script runs the ENTIRE suite once per mutation, twice over (--deep repeats it), on
+# deliberately broken constants. It is the single most pathological writer in the repo, and
+# it was writing all of it into ~/.config/laserbrain — the corpus every published threshold
+# is measured from.
+#
+# FOUND 2026-08-06 by test_corpus_clean, after the 0.45.0 release put 84 fixture contexts
+# back into a corpus that had been quarantined clean four hours earlier. publish.sh was
+# blamed and fixed the night before; the fix set LASERBRAIN_HOME at line 34 and this script
+# is called from line 24. Ten lines too late, so the gate that runs first ran unprotected
+# and undid the cleaning of the gate that runs second. 82 of the 84 were contexts I had
+# already quarantined once.
+#
+# THE LESSON, which is why the export lives HERE and not in the caller: isolating a script
+# from outside protects only the call sites someone remembered. A script that writes state
+# should carry its own root, so it is isolated however it is invoked — by publish.sh, by
+# run-tests.sh, or by hand.
+#
+# Deferring to an existing LASERBRAIN_HOME keeps it composable: under run-tests.sh the run
+# shares that root rather than fragmenting into one per script.
+if [ -z "${LASERBRAIN_HOME:-}" ]; then
+  LASERBRAIN_HOME="$(mktemp -d "${TMPDIR:-/tmp}/laserbrain-mutate-XXXXXX")"
+  export LASERBRAIN_HOME
+  mkdir -p "$LASERBRAIN_HOME/config" "$LASERBRAIN_HOME/sessions"
+fi
+
 # Was a hand-written 11-file list. It stopped covering 19 of the 30 test_*.py files in
 # this directory, silently — test_operator.py and test_mcp_server.py included — for the
 # same reason publish-0.29.0.sh stopped naming symbols: a hardcoded list can never contain

@@ -31,7 +31,9 @@ NUDGE_AFTER = 8          # steps without a SPELLED check before the reminder fir
 # 1000+ readings and every session record — so renaming it would orphan all of it for a
 # cosmetic gain. It is a location, not a claim about who may use it: every agent on the
 # machine writes here, which is the point of a shared corpus.
-DEFAULT_DIR = pathlib.Path.home() / '.claude' / 'laserbrain'
+from . import _paths as _P
+from . import _evidence                     # the observed channel this session fills
+DEFAULT_DIR = _P.sessions_dir()
 
 # Internal dispatchers that wrap a real tool name in their arguments.
 _WRAPPER_TOOLS = frozenset({
@@ -375,6 +377,20 @@ class Session:
 
     def tool(self, name, args=None, ok=True, self_refusal=False):
         self.d['steps'] += 1
+        # FEED THE OBSERVED CHANNEL. This session has always known every tool call and its
+        # outcome; the harness's corroboration channel had no wire to it and depended on the
+        # caller remembering to call saw(). Almost nobody did, so `anchored` returned 0.5 for
+        # its whole life and the fault went unseen because nothing leaned on it.
+        #
+        # A self-refusal is excluded for the same reason it is excluded from `catches`: the
+        # coverage gate blocking its own agent is the instrument disagreeing with itself, not
+        # work that happened. Counting it as observed work would let the harness corroborate
+        # its own interruptions.
+        if not self_refusal:
+            try:
+                _evidence.bump(ok=ok)
+            except Exception:
+                pass          # evidence is an addition to the reading, never a precondition
         self._obs.record(name, args, ok=ok)
         self.d['events'] = [{'sig': e['sig'], 'ok': e['ok']} for e in self._obs.events][-40:]
         self.d['inferred'].append({'step': self.d['steps'], 'progress': self._obs.progress(),
@@ -427,7 +443,7 @@ class Session:
                 'since': int(self.d.get('steps', 0)) - int(last.get('step') or 0)}
 
     def check(self, goal, progress, distance, drifting, reason=None, phi=None,
-              run=None, run_step=None):
+              run=None, run_step=None, anchored=None, goal_score=None, judgment=None):
         """A SPELLED check. Inputs are recorded so the session can be replayed under a
         different calibration — see calibrate.py.
 
@@ -456,6 +472,32 @@ class Session:
             rec['run'] = str(run)
         if run_step is not None:
             rec['run_step'] = run_step
+        # THE THREE FIELDS THIS RECORD WAS MISSING, and the reason they had to land HERE.
+        #
+        # lb_coverage was taught to extract them on 2026-08-04 and they never reached a
+        # file. This method is the writer that wins: Session owns the session path, holds
+        # its dict across the hook's writes and saves the whole thing back, so a richer row
+        # written next door is overwritten by this one. The same race is already documented
+        # against `probe_arm`, which is why arms.jsonl exists — and it ate the new fields
+        # for a full day before anyone looked at a stored row.
+        #
+        #   anchored    how much of Phi rests outside the agent's own account of itself.
+        #               0.5 on the published calibration and reported on every verdict
+        #               since it was added; without it stored, "does corroboration predict
+        #               a true catch" cannot be asked.
+        #   goal_score  still the errand that was asked for? Phi does not answer that: a
+        #               faithful goal sits at high Phi when the work is hard.
+        #   judgment    what the harness told the agent to DO — abandon, narrow, unbacked.
+        #               The strongest counsel it owns, and the corpus held none of it.
+        #
+        # Optional in the same way `reason` and `run` are: an older caller omits them, and
+        # an absent key stays distinguishable from a measured None.
+        if anchored is not None:
+            rec['anchored'] = anchored
+        if goal_score is not None:
+            rec['goal_score'] = goal_score
+        if judgment:
+            rec['judgment'] = judgment
         self.d['checks'].append(rec)
         # After a reset the agent's own spelled goal is authoritative — it is the task as
         # the agent states it, which is exactly what a ground should be.
@@ -572,7 +614,9 @@ class Session:
             v = verdict_of(text)
             self.check(args.get('goal', ''), args.get('progress', ''), args.get('distance'),
                        v['drifting'], reason=v['reason'], phi=v['phi'],
-                       run=v.get('run'), run_step=v.get('run_step'))
+                       run=v.get('run'), run_step=v.get('run_step'),
+                       anchored=v.get('anchored'), goal_score=v.get('goal_score'),
+                       judgment=v.get('judgment'))
             return None
         if kind == 'tool':
             self.tool(tool, args, ok, self_refusal=is_self_refusal(text))
@@ -747,8 +791,30 @@ def verdict_of(text):
         elif isinstance(x, str):
             t = x.strip()
             if t[:1] in ('{', '['):
+                # SALVAGE THE PREFIX. json.loads() demands the WHOLE string be one value, so
+                # a single character appended after the payload threw the entire reading away.
+                #
+                # Not hypothetical: laserbrain appends its own honesty note to check_state
+                # responses — "distance has not fallen across the last two checks" — and that
+                # note fires very nearly when the judgment layer decides to speak. Measured
+                # 2026-08-05 on one run: server steps 2-5 parsed and were stored; steps 6-9
+                # were exactly the four carrying an `unbacked` judgment, and all four recorded
+                # `no-reading` with every field None. Not only the judgment — reason, phi,
+                # anchored and goal_score went with it.
+                #
+                # So the instrument went blind precisely when it had the most to say, and did
+                # it to itself. Across the whole corpus that is 0 of 2,555 drift rows and 0 of
+                # 2,157 session rows carrying a judgment, while the field tested green.
+                #
+                # raw_decode reads the first complete value and stops, which fixes it for ANY
+                # trailing text rather than only for ours.
                 try:
                     return walk(json.loads(t), depth + 1)
+                except Exception:
+                    pass
+                try:
+                    obj, _end = json.JSONDecoder().raw_decode(t)
+                    return walk(obj, depth + 1)
                 except Exception:
                     return None
         return None
@@ -759,9 +825,21 @@ def verdict_of(text):
     # number — the two counters that were silently unrelated for the whole corpus. None
     # means the server predates 2026-08-01 and cannot be joined, which is a different
     # statement from "no run" and has to stay tellable apart downstream.
+    # THE SAME THREE FIELDS lb_coverage._verdict() was taught to extract on 2026-08-04 —
+    # and this is a SECOND COPY of that function, which nobody edited, so the fields were
+    # pulled out next door and thrown away here. lb_coverage extracts; this one feeds the
+    # writer that actually owns the file. A day of checks recorded none of them.
+    #
+    # Two implementations of one extractor is the pattern this codebase keeps paying for:
+    # drift.ts already carries "This is the FOURTH copy of the rule... Change all four or
+    # none". These two should be one function; until they are, they change together.
+    j = found.get('judgment') or {}
     return {'drifting': bool(found.get('drifting')),
             'reason': str(found.get('reason') or 'no-reading'),
             'phi': found.get('phi'),
+            'anchored': found.get('anchored'),
+            'goal_score': found.get('goal_score'),
+            'judgment': (j.get('verdict') if isinstance(j, dict) else None),
             'run': found.get('run'),
             'run_step': found.get('step')}
 

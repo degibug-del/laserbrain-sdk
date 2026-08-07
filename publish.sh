@@ -26,6 +26,14 @@ echo "  mutation gate — proving the suite can go red"
 echo "    ok — every mutation caught, with and without the pin"
 
 echo "  running the suite first — a red suite is not a release"
+# ISOLATED, because a release must not write into the live corpus. Every suite here spawns
+# servers and builds Harnesses, and without a private root they land in ~/.config/laserbrain
+# — 85 fixture contexts arrived that way from the 0.44.0 publish alone, into the same corpus
+# every published threshold is measured from. run-tests.sh has done this since 2026-08-05;
+# this loop predates it and was still writing to $HOME.
+LASERBRAIN_HOME="$(mktemp -d "${TMPDIR:-/tmp}/laserbrain-publish-XXXXXX")"
+export LASERBRAIN_HOME
+mkdir -p "$LASERBRAIN_HOME/config" "$LASERBRAIN_HOME/sessions"
 # Every test_*.py, discovered rather than a list typed once and left behind. Found on
 # 2026-07-31: this loop named ten files by hand while the repo held thirty-one, so
 # test_operator.py, test_operator_harness.py and test_nova.py — the ones covering the
@@ -74,3 +82,40 @@ print("  ✓ fresh install of ${VERSION} imports Calibration, observe and vocab,
 PYEOF
 rm -rf "$TMP"
 echo "  published and verified against a clean environment, not against the index"
+
+# ── REGENERATE THE SITE'S DRIFT VECTORS ─────────────────────────────────────────────────
+#
+# workers/laserbrain-mcp-remote/drift-vectors.json is stamped with the SDK version that
+# produced it, and phronesis-world's check-laserstore compares that stamp against
+# laserbrain-sdk/pyproject.toml. So the moment a release bumps the version, the vectors are
+# a fossil — and check-drift-parity.ts goes on printing "drift.ts agrees with the Python
+# instrument" while reading them, which is the sentence that made it a defect rather than
+# staleness. It shipped the period-4 divergence on 2026-07-27.
+#
+# It broke the site build twice on 2026-08-06 alone, once per release, each time caught by
+# the gate and fixed by hand. A gate that fires every release is telling you the release is
+# missing a step.
+#
+# LAST, AND NEVER FATAL. The upload above is irreversible; a site artifact must not be able
+# to fail a publish that already succeeded. If this cannot run — no site repo on this
+# machine, no python, generator moved — it says so and exits 0, and the build gate is still
+# there to catch it the old way.
+#
+# `import laserbrain` resolves to the editable install in this directory, so the vectors are
+# generated from the working tree that was just published rather than from the index. That
+# is what makes running it here correct instead of merely convenient.
+GEN="$HOME/phronesis-world/workers/laserbrain-mcp-remote/gen-drift-vectors.py"
+echo
+if [ ! -f "$GEN" ]; then
+  echo "  drift vectors: skipped — no $GEN on this machine"
+  echo "  regenerate wherever phronesis-world lives, or the next site build will fail"
+else
+  echo "  regenerating the site's drift vectors for ${VERSION}"
+  if python3 "$GEN" 2>&1 | sed 's/^/    /'; then
+    echo "    ✓ commit workers/laserbrain-mcp-remote/drift-vectors.json in phronesis-world"
+  else
+    echo "    ✗ regeneration failed — the publish itself is fine and complete."
+    echo "      Run it by hand before the next site build:"
+    echo "      python3 $GEN"
+  fi
+fi

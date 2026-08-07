@@ -26,7 +26,7 @@ from pathlib import Path as _Path
 
 __all__ = ['Harness', 'Team', 'Verdict', 'PRESETS', 'norm', 'laserscore', 'context_id',
            'verify_audit', 'ground_score', 'MAX_DEPTH']
-__version__ = '0.42.0'
+__version__ = '0.48.0'
 MAX_DEPTH = 50   # nesting deeper than this is a drift signal, not a decomposition
 API_DEFAULT = 'https://laserbrain-mcp.degibug.workers.dev'
 
@@ -125,6 +125,61 @@ def _asdist(d):
         return 5
 
 
+def fires_first(checks):
+    """Whichever raised the alarm first — the agent or the instrument.
+
+    THE ONE THING THAT MEASURED WELL, on ARC-AGI-3, 2026-08-05.
+
+    A 26-step run was scored two ways. The agent's own `progress` reports flagged trouble at
+    steps 8, 12 and 21. The instrument's readings flagged it at 11 and 18. Neither is a
+    subset of the other:
+
+        step  8   the agent saw it, the instrument was silent
+        step 11   the instrument fired while the agent was still reporting `advancing`
+        step 18   the same, and the agent did not catch up until 21 — three steps later
+
+    Union: 5 episodes against 3 for the agent alone and 2 for the instrument alone, and
+    4 steps of lead across 26 — 15% of the run. On a benchmark scored by action efficiency
+    that 15% is not a side effect, it is the metric.
+
+    WHY IT WORKS, and it is not that one source is better. The agent is smarter — it reads
+    the situation and can see what no rule anticipates, which is how it caught step 8. The
+    instrument is more precise — it applies one rule identically every time and does not
+    flatter itself, which is how it caught 11 and 18 while the agent was talking itself
+    into `advancing`. Precision catches what intelligence rationalises away; intelligence
+    catches what precision has no rule for.
+
+    So: do not arbitrate between them. Take whichever fires first.
+
+    `checks` is any sequence of rows carrying `step`, `progress` and `reason` — the shape
+    the session file already stores. Returns the episodes in order, each naming the step,
+    the source that called it, and how far ahead of the other it was.
+    """
+    STALL = {'stalled', 'oscillating'}
+    OWN = {'stuck', 'circling'}
+
+    def episodes(pred):
+        out, on = [], False
+        for c in checks:
+            now = bool(pred(c))
+            if now and not on:
+                out.append(c.get('step'))
+            on = now
+        return out
+
+    inst = episodes(lambda c: str(c.get('reason') or '') in STALL)
+    own = episodes(lambda c: c.get('progress') in OWN)
+    out = []
+    for step in sorted(set(inst) | set(own)):
+        by_inst, by_own = step in inst, step in own
+        source = 'both' if (by_inst and by_own) else ('instrument' if by_inst else 'agent')
+        other = own if by_inst else inst
+        later = [x for x in other if x > step]
+        out.append({'step': step, 'first': source,
+                    'lead': (later[0] - step) if later else None})
+    return out
+
+
 def laserscore(goal, progress, distance=None, parent_goal=None) -> str | None:
     """One well-formed reading written in the grammar, in canonical form.
 
@@ -200,7 +255,9 @@ def _b36(n):
 # Written by both implementations, in the same format, at the same path. That is the whole
 # point: a context met through the MCP server on Monday is the same context met through the
 # package on Thursday, or the memory is worthless.
-CONTEXTS = _Path.home() / '.config' / 'laserbrain' / 'contexts.json'
+from . import _paths as _P
+from . import _evidence                     # the observed channel, fed by the runtime
+CONTEXTS = _P.config('contexts.json')
 
 
 def _read_contexts():
@@ -387,7 +444,7 @@ class Calibration:
     """
 
     __slots__ = ('goal_min', 'self_report_min', 'stall_window', 'w_goal', 'w_distance',
-                 'w_progress', 'echo_min', 'dialogue_window')
+                 'w_progress', 'echo_min', 'dialogue_window', 'max_checks')
 
     # Defaults come from grammar.json's `calibration` block, with the published literals
     # as a fallback if the file is missing. `Calibration()` with no arguments therefore
@@ -403,7 +460,8 @@ class Calibration:
                  w_goal=_W.get('goal', 0.5), w_distance=_W.get('distance', 0.3),
                  w_progress=_W.get('progress', 0.2),
                  echo_min=_D.get('echo_min', 0.25),
-                 dialogue_window=_D.get('dialogue_window', 3)):
+                 dialogue_window=_D.get('dialogue_window', 3),
+                 max_checks=_D.get('max_checks')):
         for name, v in (('goal_min', goal_min), ('self_report_min', self_report_min)):
             if not 0.0 <= float(v) <= 1.0:
                 raise ValueError(f'{name} must be within 0..1, got {v!r}')
@@ -421,6 +479,8 @@ class Calibration:
             raise ValueError(f'dialogue_window must be >= 1, got {dialogue_window!r}')
         self.w_goal, self.w_distance, self.w_progress = float(w_goal), float(w_distance), float(w_progress)
         self.echo_min, self.dialogue_window = float(echo_min), int(dialogue_window)
+        # A COUNT, NOT A JUDGMENT. None means no budget — the published instrument.
+        self.max_checks = None if max_checks is None else max(1, int(max_checks))
 
     def __eq__(self, o):
         return isinstance(o, Calibration) and all(
@@ -616,7 +676,29 @@ class _Run:
         # says about itself. Cleared each check, because corroboration is a claim about the
         # interval just measured, not about the run as a whole.
         self.evidence = []
+        self._backed = []
         self.corroborated = 0       # checks whose self-report was backed by observed work
+        # WHETHER ANYTHING WAS EVER OBSERVED. Without it, "never corroborated" cannot be
+        # told apart from "nobody called saw()", and a harness used bare — every test in
+        # this repo, and any user who skips an optional API — would be accused of claiming
+        # progress it had not earned. Uninstrumented is not the same as unbacked, and an
+        # instrument that cannot tell them apart must say nothing.
+        self.saw_any = False
+        # WHERE THE RUNTIME COUNTER STOOD WHEN THIS RUN BEGAN. Corroboration is an advance
+        # between two checks, never a total, so a counter already carrying thousands of
+        # outcomes from earlier work starts this run at zero credit. Read at construction
+        # rather than at the first check, or everything that happened between the two would
+        # be silently claimed by it.
+        # TWO BASELINES, because liveness and corroboration are different questions.
+        # `_ev_seen` is every outcome, pass or fail — a run whose work all failed is the most
+        # instrumented case there is, and must read as live so `unbacked` can speak. `_ev_ok`
+        # is successes only, and it is what corroboration advances against.
+        try:
+            _ok, _fail = _evidence.count()
+            self._ev_mark = self._ev_ok = _ok
+            self._ev_seen = _ok + _fail
+        except Exception:
+            self._ev_mark = self._ev_ok = self._ev_seen = 0
         self.checks = 0
         self._osc = False        # already reported an oscillation for the current cycle
         # Identity of this run, so a context can count the SESSIONS it has been opened in
@@ -629,6 +711,21 @@ class _Run:
         self.run_id = _uuid.uuid4().hex[:12]
         self.repetition = 0      # times the current spelling has been written in its context
         self.context = None
+        # WHERE THE CURRENT GROUND BEGINS, as an index into `trace`.
+        #
+        # A reground replaces the setpoint: ground, first_goal and dist_hist all become the
+        # new goal's. `trace` deliberately does not reset, because the rules that judge the
+        # SEQUENCE of grounds — oscillation, drifts-against-regrounds — have no subject
+        # without it. But the rules that judge PROGRESS were reading that same trace, so on
+        # the first check after a reground they saw a dozen checks of someone else's work
+        # against a distance that had just been re-zeroed. `steps >= 12 and closed <= 0` was
+        # then true by construction, and the strongest counsel the instrument owns — stop
+        # working — was delivered on the first check of a task nobody had attempted yet.
+        # Observed live 2026-08-04; test_windup.py holds it down.
+        #
+        # This is integrator windup across a setpoint change, and this index is the
+        # anti-windup reset: progress is measured from here, sequence is measured from zero.
+        self.ground_at = 0
 
     def _goal_score(self, goal):
         """Overlap between the goal just spelled and the one this run started with."""
@@ -657,6 +754,15 @@ class _Run:
         """
         dh, trace = self.dist_hist, self.trace
         steps = len(trace)
+        # THE SPLIT. `steps` is the whole run and stays that way for the rules whose
+        # subject IS the whole run — a cycle in the ground, drifts weighed against
+        # regrounds. `here` is the current setpoint's own accumulator, and every rule that
+        # asks "is this work going anywhere" reads that instead, because `closed` and
+        # `pace` are computed from a dist_hist the reground already re-zeroed. Pairing a
+        # never-reset counter with a reset distance is what made `abandon` fire on the
+        # first check of a fresh task. See ground_at.
+        here = max(1, steps - self.ground_at)
+        since = trace[self.ground_at:]
         if not self.ground or not steps:
             return {'verdict': 'ungrounded',
                     'because': 'No ground state — nothing has been measured yet.',
@@ -664,9 +770,15 @@ class _Run:
 
         started, now = (dh[0] if dh else None), (dh[-1] if dh else None)
         closed = (started - now) if (started is not None and now is not None) else 0
-        pace = closed / steps if steps else 0
+        pace = closed / here
         reasons = [r for r, _ in trace]
-        stalls = reasons.count('stalled')
+        # Stalls belong to the work in front of you; a stall on a goal the user replaced is
+        # not evidence about the goal they replaced it with.
+        stalls = [r for r, _ in since].count('stalled')
+        # These two keep the whole trace on purpose. `oscillating` exists to catch an agent
+        # returning to grounds it has already held, and the drift-against-reground ratio is
+        # a statement about the sequence of grounds. Scoping either to the current ground
+        # would delete its subject.
         goal_drifts = reasons.count('goal-drift')
         regrounds = reasons.count('reground')
         oscillations = reasons.count('oscillating')
@@ -702,11 +814,35 @@ class _Run:
         # Three checks before any hard verdict. Replaying the 141-run corpus, several
         # two-check runs were handed 'narrow' and 'wrong-problem' on a trace with almost
         # nothing in it. Judgment needs evidence; two readings is a rumour.
-        judged = steps >= 3
+        judged = here >= 3
 
-        if judged and steps >= 12 and closed <= 0:
+        # A BUDGET IS NOT A JUDGMENT, and it is checked before every one of them.
+        #
+        # Everything below reasons about the WORK — is it reachable, is it the right problem,
+        # is the goal too large — and each is a call that can be wrong; published precision on
+        # individual fires is 9-14.6%. A budget cannot be wrong that way. It is a count
+        # against a number the caller chose: no evidence, no three-check warm-up, no
+        # interpretation.
+        #
+        # Taken from Prime Intellect's harness, read 2026-08-06, where continuation is decided
+        # by external gates plus maxTurns/maxTokens/maxContinuations and the agent's opinion is
+        # never consulted at all. Hard limits do the stopping job laserbrain has been
+        # attempting with `abandon`, and they do it without a precision problem.
+        #
+        # DEFAULT OFF, and the cost of that is worth naming rather than hiding: an optional
+        # mechanism nobody switches on is worth nothing, which is precisely what happened to
+        # `saw()`. It is off because arming it by default would silently change the published
+        # instrument for every existing caller, and that is the one thing a calibration must
+        # never do. Set Calibration(max_checks=N), or `max_checks` in grammar.json, to arm it.
+        if self.cal.max_checks is not None and here >= self.cal.max_checks:
+            verdict = 'over-budget'
+            because = (f'{here} checks against a budget of {self.cal.max_checks}. This is a '
+                       f'count, not an assessment of the work.')
+            counsel = ('The budget you set is spent. Stop, or raise it deliberately — but '
+                       'decide that rather than drifting past it.')
+        elif judged and here >= 12 and closed <= 0:
             verdict = 'abandon'
-            because = (f'{steps} checks. Distance began at {started} and stands at {now} — it has '
+            because = (f'{here} checks. Distance began at {started} and stands at {now} — it has '
                        f'never once improved. Nothing tried so far has moved this.')
             counsel = ('Stop. Either the approach is wrong or the goal is not reachable as stated. '
                        'Say plainly what is blocking it rather than taking a thirteenth run at it.')
@@ -719,6 +855,27 @@ class _Run:
                        f'none. Best distance ever reached is {ceiling}; this run has closed {closed}.')
             counsel = ('A problem that resists three separate attempts is usually the wrong problem. '
                        'Change the approach or hand it back before spending another session.')
+        elif judged and self.saw_any and self.corroborated == 0 and here >= 5 and closed > 0:
+            # A CLAIM WITH NOTHING UNDER IT.
+            #
+            # Half of Φ is the agent's own account of itself — 0.5 anchored on the
+            # published calibration — and `anchored` has been reported on every verdict
+            # since it was added and read by nothing. An agent that simply reports its
+            # distance falling keeps Φ low while doing no work at all, and every reading
+            # it gets is `advancing`.
+            #
+            # This is the one case where the harness can say so: work WAS observed in this
+            # run, so the machinery is live, and yet not one check had its self-report
+            # backed by it, while the agent claims to have closed distance. `verify` is
+            # the neighbouring verdict and a different fact — it fires when the observed
+            # trace DISAGREES; this fires when there is nothing to agree with.
+            verdict = 'unbacked'
+            because = (f'Distance is reported down {closed} over {here} checks, and not one of '
+                       f'them was backed by observed work — {self.corroborated} corroborated '
+                       f'of {here}.')
+            counsel = ('Run something and read the output before reporting progress again. '
+                       'Half of this score is your own account of yourself, and nothing has '
+                       'agreed with it yet.')
         elif judged and goal_drifts >= 3 and goal_drifts > regrounds and pace <= 0:
             verdict = 'wrong-problem'
             because = (f'The goal has failed its overlap check {goal_drifts} times against only '
@@ -739,11 +896,25 @@ class _Run:
                        'returned to the same place after being told to return.')
             counsel = 'Returning again will land you here a third time. Change the approach, not the position.'
         elif judged and repetition >= 3 and pace <= 0:
-            # THRESHOLD FROM THE CORPUS, not from taste. Across 382 contexts in
-            # drift-log.jsonl the maximum identical-spelling repeat distributes: >=2 fires
-            # on 9.7% (noise — ordinary work restates itself once), >=3 on 2.6% (ten
-            # contexts), >=4 on 1.0%. Three is selective without being inert, inertness
-            # being the failure this project already names for stall window 4.
+            # THRESHOLD FROM THE CORPUS, not from taste. Re-derived 2026-08-05 on the OBSERVED
+            # corpus, after 248 of 680 contexts turned out to be test fixtures — sweeps like a
+            # conformance probe with 14,508 checks, which land on exactly the repeat tail this
+            # threshold reads. Across 432 observed contexts the maximum identical-spelling
+            # repeat distributes:
+            #
+            #     >= 2   12.0%   noise — ordinary work restates itself once
+            #     >= 3    7.2%   buys 4.9 points over 2
+            #     >= 4    6.0%   buys 1.2
+            #     >= 5    5.8%   buys 0.2
+            #
+            # THE CONSTANT DOES NOT MOVE. The elbow is still between 2 and 3, and past 3 the
+            # curve is flat — a context repeating four times usually repeats many more, so
+            # raising the bar excludes almost nothing while missing the three-repeat cases.
+            #
+            # The figures it used to quote (382 contexts: 9.7% / 2.6% / 1.0%) were measured on
+            # the mixed corpus. Stale, not wrong in kind: the >= 2 rate barely moved, which is
+            # the check that the method still matches. What moved was the tail, and the tail
+            # was fixtures.
             #
             # A stronger claim than `stalled`, hence its place above `narrow`. Stalled
             # reads the distance alone, and distance sits flat through legitimate
@@ -758,11 +929,23 @@ class _Run:
             verdict = 'narrow'
             because = (f'Distance has sat at {", ".join(str(d) for d in dh[-flat:])} for {flat} checks '
                        f'without falling, and {now} is still far from done.')
+            # NAME THE MECHANISM, or this counsel is a trap. Followed literally — replace
+            # the goal with a smaller one — the reading layer then scores the new goal
+            # against the ground and returns goal-drift at goal_score 0.00. Measured
+            # 2026-08-05 while an agent was obeying it: narrow -> narrow the goal ->
+            # goal-drift, phi 0.53, and the same counsel again. The instrument was
+            # faulting an agent for doing exactly what it had just been told to do.
+            #
+            # `parent_goal` is the mechanism that makes narrowing legal, and it already
+            # works: declare the original and the verdict is `excursion`, not drift. It
+            # simply was never mentioned at the one moment an agent needs it.
             counsel = ('The goal is too large to close in one move. Name the smallest piece that would '
-                       'genuinely reduce the distance and make that the goal.')
+                       'genuinely reduce the distance and make that the goal — and pass the goal you '
+                       'have now as parent_goal, so narrowing reads as a sub-task rather than as '
+                       'drift.')
         elif now is not None and now <= 2 and closed > 0:
             verdict = 'finish'
-            because = f'Distance is {now}, down from {started} over {steps} checks.'
+            because = f'Distance is {now}, down from {started} over {here} checks.'
             counsel = 'Close it out. Do not add scope, refactor, or polish — finish what was asked and stop.'
         elif judged and stalls and pace <= 0 and now is not None and now >= 4:
             # `now >= 4` came out of the corpus: this branch was telling runs sitting at
@@ -772,12 +955,12 @@ class _Run:
             # to close, which is a statement about the distance remaining, not the stall.
             verdict = 'narrow'
             because = (f'{stalls} stall{"s" if stalls > 1 else ""} recorded and net distance closed is '
-                       f'{closed} over {steps} checks, still at {now}.')
+                       f'{closed} over {here} checks, still at {now}.')
             counsel = ('Motion without progress. Pick one concrete sub-result you can actually finish, '
                        'and make that the goal.')
         else:
             verdict = 'continue'
-            because = (f'Distance {started} → {now} over {steps} checks ({pace:.2f}/check), '
+            because = (f'Distance {started} → {now} over {here} checks ({pace:.2f}/check), '
                        f'goal held at {gs}.')
             counsel = ('Working. Keep the goal fixed and keep going.' if pace > 0 else
                        'Holding ground but not closing yet. If the next two checks do not move the '
@@ -791,14 +974,156 @@ class _Run:
             'scores': {'goal': gs,
                        'closure': round(closed / started, 2) if started else (1 if now == 0 else 0),
                        'pace': round(pace, 2),
-                       'evidence': round(self._anchor(), 2),
+                       # THE RUN'S RATE, not a fresh reading — and the difference was a bug.
+                       #
+                       # This called _anchor() again, here, and _anchor() answers "was the
+                       # interval since the LAST CHECK backed by observed work". phronesis
+                       # runs after the last check, so that interval is empty by
+                       # construction and the answer was 0.5 however well corroborated the
+                       # run had been. Measured on a six-check run with every check backed:
+                       # corroborated 6 of 6, evidence 0.5.
+                       #
+                       # Worse, _anchor() increments `checks`, so every phronesis() call was
+                       # adding a check that never happened to the denominator of the very
+                       # rate this field should have been reporting.
+                       #
+                       # The same shape as the server's anchored() memo bug — a field that
+                       # structurally could not report the thing it was named for, reported
+                       # on every call, and read by nobody closely enough to notice.
+                       'evidence': (round(self.corroborated / self.checks, 2)
+                                    if self.checks else 0.0),
                        'recurrence': prior_runs,
                        'repetition': repetition,
                        'ceiling': ceiling},
             'because': because,
             'counsel': counsel,
+            'control': self._control(here, prior_runs, goal_drifts, regrounds),
             'context': context_id(self.first_goal_text),
         }
+
+    # ── THE SPLIT ───────────────────────────────────────────────────────────────────────
+    #
+    # Two decisions were being made by one rule, and they have opposite tolerances for
+    # being wrong.
+    #
+    #   LEARNING   "what does this agent think is happening, and what should it try next"
+    #              — narrow, finish, continue. Wrong costs a suggestion nobody had to take.
+    #              Self-report is the right input: it is the only thing that knows intent.
+    #
+    #   CONTROL    "should this run go on at all" — stop, verify. Wrong costs a killed run
+    #              that was about to work, or a runaway that should have been killed. The
+    #              agent's own account is the worst possible input, because the agent is the
+    #              subject of the decision.
+    #
+    # `verdict` above is the learning decision and is UNCHANGED — same rules, same
+    # thresholds, same order, every existing caller reads exactly what it read before.
+    # `control` is new and additive, and it is the one that may only read things the agent
+    # cannot type its way out of.
+    #
+    # THE TEST FOR ADMISSION, applied to every input:
+    #   can the agent silence this rule by typing different numbers, without doing
+    #   different work?
+    #
+    #   here, max_checks    no  — the harness counts calls; nothing typed changes a count
+    #   saw_any, corroborated
+    #                       no  — tool outcomes, recorded by a hook from what actually ran
+    #   prior_runs          no  — how many earlier SESSIONS opened this context
+    #   goal_drifts,        no  — overlap against a ground frozen at first call. The theorem
+    #   regrounds               is that the ground cannot be revised; that is what makes the
+    #                           goal term the anchored half of Φ.
+    #
+    #   distance, closed,   YES — all of it is whatever was typed into `distance`, and every
+    #   pace, now, flat,        one of them is barred here. This is the whole change: today
+    #   stalls, repetition,     `abandon` requires closed <= 0, so an agent that types a
+    #   ceiling                 falling number is never told to stop, however little it does.
+    #                           repetition and ceiling are counted by the store but counted
+    #                           over typed spellings, so they fail the test too.
+    #
+    # Two rules therefore drop a condition their `verdict` twins carry — `unbacked` loses
+    # `closed > 0` and the recurrence arm of `abandon` loses `closed <= 0`. Both conditions
+    # were self-report, and both had the same effect: they made the rule wait for the agent's
+    # permission to fire. Control fires without it, which means control is STRICTLY LOUDER
+    # than the matching verdict. That is intended and it is the measurable claim — where the
+    # two disagree is precisely where self-report was carrying the decision.
+    #
+    # From Prime Intellect's harness, read 2026-08-06: `shouldAutonomouslyContinue` decides
+    # on external quality gates and hard limits, and never once consults the model's opinion
+    # of how it is doing. laserbrain had no such separation at all.
+    def _control(self, here, prior_runs, goal_drifts, regrounds):
+        """Continue-or-not, decided only on what the agent cannot author.
+
+        decision is one of:
+
+            stop      a count or a record says this should not go on — a spent budget, or a
+                      context four sessions deep and finished in none. Safe to halt on.
+            reground  the work may be fine; the GOAL has moved and nobody declared it.
+                      reset_task to the goal you actually have, or hand it to a human.
+                      Deliberately not `stop`: see the note on that branch — every
+                      disagreement in the corpus came from here, and halting on them would
+                      have killed twelve runs that were working.
+            verify    work was observed and none of it corroborated the self-report.
+            proceed   nothing the agent cannot author says otherwise.
+
+        Returns {decision, because, observed, reads}. `observed` is the honest part: it is
+        False when nothing has ever been recorded through saw(), and on that path control is
+        running on the call count alone and says so instead of implying evidence it does not
+        have. Most callers never call saw(), so most runs will read False — that is not a
+        defect of this method, it is the measurement of how much of laserbrain has been
+        resting on self-report, and it is now visible on every single call rather than
+        inferable from nothing.
+        """
+        reads = {'checks': here, 'budget': self.cal.max_checks, 'observed_any': self.saw_any,
+                 'corroborated': self.corroborated, 'prior_sessions': prior_runs,
+                 'goal_drifts': goal_drifts, 'regrounds': regrounds}
+
+        if self.cal.max_checks is not None and here >= self.cal.max_checks:
+            d, why = 'stop', (f'{here} checks against a budget of {self.cal.max_checks}. A count, '
+                              f'not an assessment.')
+        elif prior_runs >= 3:
+            # No `closed <= 0` here, unlike the verdict twin. Whether THIS run believes it is
+            # closing distance is not evidence about a context that four sessions have opened
+            # and none have finished.
+            d, why = 'stop', (f'This context has been opened in {prior_runs} earlier sessions and '
+                              f"finished in none. The current run's own account of itself was "
+                              f'not consulted.')
+        elif goal_drifts >= 3 and goal_drifts > regrounds:
+            # `reground`, NOT `stop`, and the corpus is what changed my mind.
+            #
+            # Replaying 231 runs through both decisions (lasermind/control_vs_verdict.py),
+            # EVERY ONE of the 134 rows where control was louder than the verdict came from
+            # this arm — the recurrence arm produced none. So this arm is, empirically, the
+            # whole of control's extra reach, and it was reporting itself with the same word
+            # as a spent budget.
+            #
+            # That is not a wording nit, it is a correctness problem. Control exists to be
+            # acted on mechanically; a caller wiring `if decision == 'stop': halt()` would
+            # have killed all twelve of those runs, and reading them they were working —
+            # fixing mutate.sh, regenerating a stale fixture, shipping a registry pin. What
+            # was wrong with them was never that the work was worthless. It was that the
+            # goal kept moving and nobody said so: the heaviest, run 6718dbcd, ran 40 steps
+            # under 37 distinct goals.
+            #
+            # The right response to that is to re-establish the ground — reset_task to the
+            # goal you actually have now, or hand it to a human — which is a different act
+            # from stopping. The word is the one the grammar already uses for it.
+            d, why = 'reground', (
+                f'The goal failed its overlap check {goal_drifts} times against {regrounds} '
+                f'declared re-grounds, measured against the frozen ground. This is not a '
+                f'judgement that the work is worthless — it is that nobody has said what the '
+                f'work now is.')
+        elif self.saw_any and self.corroborated == 0 and here >= 5:
+            # Also no `closed > 0`. The verdict twin waits for the agent to CLAIM progress
+            # before objecting that nothing backs it; the objection stands either way.
+            d, why = 'verify', (f'{here} checks, work was observed, and not one check was '
+                                f'corroborated by it.')
+        elif not self.saw_any:
+            d, why = 'proceed', (f'{here} checks and no reason to stop — but nothing has been '
+                                 f'recorded through saw(), so this read the count and nothing '
+                                 f'else. Treat it as the absence of a signal, not as an all-clear.')
+        else:
+            d, why = 'proceed', (f'{here} checks, {self.corroborated} corroborated by observed '
+                                 f'work. No count or record says stop.')
+        return {'decision': d, 'because': why, 'observed': bool(self.saw_any), 'reads': reads}
 
     def _anchor(self):
         """What fraction of Φ's weight is anchored outside the agent's self-report.
@@ -821,9 +1146,55 @@ class _Run:
         ev = self.evidence
         self.evidence = []
         if not ev:
-            return round(self.cal.w_goal, 2)
+            # NOTHING WAS HANDED IN — so ask the runtime instead of assuming the worst.
+            #
+            # `saw()` shipped opt-in and was called by almost nothing, which did not merely
+            # leave a feature unused: it left `anchored` returning 0.5 for its entire life,
+            # unnoticed, because nothing depended on it enough to look. The default was the
+            # bug. runtime.Session has known every tool call and its outcome the whole time
+            # and simply had no wire to here.
+            #
+            # AN ADVANCE, NOT A TOTAL. A counter left over from other work on this machine
+            # must not lend credibility to a run doing nothing, so what counts is movement
+            # between this check and the last. Same rule as evidenceAdvanced() on the
+            # server, and the same shared file — one observed channel per machine, not two
+            # that disagree.
+            return self._anchor_from_runtime()
         ok = [e for e in ev if getattr(e, 'ok', None) is not False]
         if not ok:
+            self._backed.append(False)
+            return round(self.cal.w_goal, 2)
+        self.corroborated += 1
+        self._backed.append(True)
+        return 1.0
+
+    def _anchor_from_runtime(self):
+        """The observed channel when the caller never called saw(). Fails open to 0.5."""
+        try:
+            ok, fail = _evidence.count()
+        except Exception:
+            ok = fail = 0
+        # LIVE FOR THIS RUN, not merely present on this machine. The counter is shared — the
+        # server's hook fills the same file — so a count that was already there when this run
+        # began says nothing about this run. Treating it as instrumentation is how the first
+        # version of this broke the rule the harness is built on: uninstrumented is not the
+        # same as unbacked, and an instrument that cannot tell them apart must say nothing.
+        # Caught by test_unbacked, which exists for precisely that sentence: an ordinary
+        # Harness with no runtime attached was being handed `unbacked` because some earlier
+        # process had written to the file it reads.
+        #
+        # So corroboration must ARRIVE DURING the run. _ev_start is frozen at construction
+        # and never moves; _ev_mark rolls forward per check.
+        if (ok + fail) <= self._ev_seen:          # dark: nothing observed since this began
+            self._backed.append(False)
+            return round(self.cal.w_goal, 2)
+        # The channel is live, which is a different fact from "observed and unconvincing" —
+        # `unbacked` and `control` both read saw_any to tell those apart.
+        self.saw_any = True
+        advanced = ok > self._ev_mark
+        self._ev_mark = ok
+        self._backed.append(bool(advanced))
+        if not advanced:
             return round(self.cal.w_goal, 2)
         self.corroborated += 1
         return 1.0
@@ -831,6 +1202,7 @@ class _Run:
     def saw(self, event):
         """Record one observed event for the interval up to the next check."""
         self.evidence.append(event)
+        self.saw_any = True
 
     def step(self, goal, progress, distance, parent_goal=None, user_turn=False):
         prev = _isdrift(self.trace[-1][0]) if self.trace else False
@@ -867,9 +1239,21 @@ class _Run:
             # sequence of readings. The verdict pass is kept because a repeating READING
             # over a moving ground is a real pattern too — it just is not the same one.
             p = _cycle(self.trail)
+            # THE READING FALLBACK IS RETIRED, 2026-08-04, on the corpus.
+            #
+            # It fired 16 times in 1,823 recorded readings and was wrong all 16. Not one
+            # had a cycle in the GOALS: every window looked like A A A B — an agent working
+            # one goal, then handed another — where only the sequence of verdicts happened
+            # to repeat. That is the ordinary rhythm of a working session (grounded,
+            # advancing, advancing, grounded, ...), so the arm fired on task switching and
+            # on nothing else. Precision 0.00, and it cannot be tuned: the period it finds
+            # is a property of how often a user speaks, not of the work.
+            #
+            # The GROUND arm stays and is the principled one. x = [x, f(x)] — the ground is
+            # x, the verdicts are f(x), and a cycle in x is the thing this verdict was built
+            # to name. It has produced no fires yet, which makes it untested rather than
+            # disproven; an arm that has never cried wolf is not the one to remove.
             of = 'ground'
-            if not p:
-                p, of = _cycle([r for r, _ in self.trace]), 'reading'
             if p and not self._osc:
                 self._osc = True
                 what = ('You have returned to the same goals in a repeating order'
@@ -904,6 +1288,7 @@ class _Run:
             self.first_goal = norm(goal)
             self.first_goal_text = goal
             self.dist_hist = [] if d is None else [d]
+            self.ground_at = len(self.trace)
             return emit('grounded', False, 'Ground state set — continue, and check each step.',
                         why=f'ground is goal={goal!r}, progress={progress!r}, '
                             f'distance={"unknown" if d is None else d}')
@@ -939,6 +1324,9 @@ class _Run:
                 self.first_goal = norm(goal)
                 self.first_goal_text = goal
                 self.dist_hist = [] if d is None else [d]
+                # The setpoint moved, so the progress accumulator starts here. Everything
+                # before this index belongs to a goal the user has replaced.
+                self.ground_at = len(self.trace)
                 return emit('reground', False,
                             'New instruction — ground reset to the goal you just stated.',
                             why=f'the goal moved (overlap {anchor:.2f}) on the first check '
@@ -1035,6 +1423,43 @@ class _Run:
         dh = self.dist_hist
         w = self.cal.stall_window
         if len(dh) > w and min(dh[-w:]) >= dh[-w - 1]:
+            # A FLAT DISTANCE IS NOT A STALL WHEN THE WORLD IS RESPONDING.
+            #
+            # `stalled` read distance monotonicity and nothing else, which cannot tell three
+            # different situations apart:
+            #
+            #   the run is genuinely stuck        distance flat, nothing happening
+            #   the agent is EXECUTING a plan     distance flat by nature — carrying a box
+            #                                     across a room does not reduce distance-to-
+            #                                     done on any single step
+            #   the GOAL MOVED                    distance rose through no fault of the agent
+            #
+            # Measured on ARC-AGI-3, 2026-08-05: across five agent runs `stalled` fired on 35
+            # of 133 steps, and ALL 35 reached a state the run had never seen before. Not one
+            # was a step where nothing was happening. Three agents independently wrote that
+            # the fires were "purposeful walking rather than confusion", "pure execution
+            # toward a target I'd already verified", "execution along a route I already
+            # understood". The rule was right about the number and wrong about the run.
+            #
+            # So the observed channel gets a veto. `saw()` already records what actually
+            # happened between checks and `_anchor` already decides per check whether the
+            # report was backed — this reads that history rather than inventing a new signal.
+            # If every check in the window was backed by observed events, the distance is flat
+            # because the agent is doing the work, and saying "return" would be wrong.
+            #
+            # DELIBERATELY CONSERVATIVE: it requires the WHOLE window backed, not a majority.
+            # A run with intermittent evidence still stalls. And with no evidence at all —
+            # every agent that never calls saw() — the behaviour is exactly as before, so
+            # nothing already calibrated moves.
+            backed = self._backed[-w:] if len(self._backed) >= w else []
+            if backed and all(backed):
+                return emit('advancing', False,
+                            f'Distance is flat, but every check in the window is backed by '
+                            f'observed work — this reads as execution, not a stall. (Φ={phi:.2f})',
+                            phi,
+                            why=f'distance {dh[-1]} no better than {dh[-w - 1]} from {w} steps '
+                                f'ago, but {w} of {w} recent checks were corroborated, so the '
+                                f'flat distance is execution rather than a stall')
             return emit('stalled', prev,
                         "Distance stopped falling and you were already off ground — return." if prev
                         else "Distance isn't falling. If it holds, return.", phi,
@@ -1760,9 +2185,11 @@ __all__ += ['Search', 'Reading', 'trailscore']
 
 # ── laserbrain AI · the harness as a decoder ──────────────────────────────────
 from .write import Writer
+from .reading import (CIRCLING_VARIETY, lexical_variety, read as read_text,  # noqa: F401
+                      shape_of)
 # nova last: it imports Harness and Supercode from here, so it must load after both.
 from .nova import Nova, Skill                                     # noqa: E402                                        # noqa: E402
-__all__ += ['Writer']
+__all__ += ['fires_first', 'Writer', 'lexical_variety', 'shape_of', 'read_text', 'CIRCLING_VARIETY']
 __all__ += ['Nova', 'Skill']
 
 # ── the operator · the sixth layer, the only one that acts ────────────────────

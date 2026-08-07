@@ -1,5 +1,339 @@
 # Changelog
 
+## 0.48.0 - 2026-08-06
+
+### a moving goal asks for a reground, not a halt
+
+0.46.0's changelog made a claim that had to be checkable, and said so: *if the two never
+disagree, control is ceremony.* Rather than wait a month for rows, the corpus that already
+exists was replayed through both decisions — 231 runs, 1,727 spelled checks
+(`lasermind/control_vs_verdict.py`).
+
+```
+verdict stop      control speaks      107
+verdict stop      control proceed       0     control is never the quieter one
+verdict continue  control speaks      134     self-report was buying these a pass
+verdict continue  control proceed    1486
+```
+
+Control is strictly louder, as claimed — there is no row where the verdict halts a run and
+control lets it live. But two things fell out of the replay that mattered more than the
+headline.
+
+**Every one of the 134 came from the goal-drift arm.** The recurrence arm produced none and
+the budget arm is off by default, so a single arm was the whole of control's extra reach.
+
+**And that arm was answering `stop`** — the same word as a spent budget. Control exists to
+be acted on mechanically, and a caller wiring `if decision == 'stop': halt()` would have
+killed all twelve of those runs. Read one by one they were working: fixing `mutate.sh`,
+regenerating a stale fixture, shipping a registry pin. What was wrong was never that the
+work was worthless. It was that the goal kept moving and nobody said so — the heaviest, run
+`6718dbcd`, ran 40 steps under 37 separate goals while reporting a falling distance the
+whole way, so `wrong-problem` stayed silent on its `pace <= 0` condition and the verdict
+read `continue`.
+
+So `control.decision` gains a fourth value:
+
+| | |
+|---|---|
+| `stop` | a count or a record says so — spent budget, or a context four sessions deep and finished in none. Safe to halt on. |
+| `reground` | the work may be fine; the **goal** has moved and nobody declared it. `reset_task` to the goal you actually have, or hand it to a human. |
+| `verify` | work was observed and none of it corroborated the self-report. |
+| `proceed` | nothing the agent cannot author says otherwise. |
+
+Across the whole corpus control now says `stop` **zero** times and `reground` 241. That is
+the honest shape of it: the evidence-only decision has a great deal to say, and almost none
+of what it has to say is *give up*.
+
+### a correction to the method, not only the result
+
+The first replay reported 18.3%, and it was wrong. It never replayed `reset_task`, so every
+legitimate task change read as drift and `regrounds` was 0 for the entire corpus. Found by
+reading one flagged run rather than by trusting the number: `3be8c681` closed its first goal
+to distance 0, was handed a second, and the live log records that step as a healthy declared
+`reground`. Fixing it also cut `abandon` from 238 to 10 — the confound was inflating the
+*verdict* side harder than the control side.
+
+A number that supports the thing you just built deserves more scrutiny, not less. The note
+is kept in the file, because the corrected figure is only trustworthy if the correction is
+visible next to it.
+
+## 0.47.0 - 2026-08-06
+
+### the observed channel fills itself
+
+`saw()` was built so a self-report could be corroborated by observed work, shipped, and then
+called by almost nothing. The cost was not an unused feature: `anchored` sat structurally
+broken for its entire life, returning 0.5 forever, and nobody noticed because nothing
+depended on it enough to look. When `max_checks` shipped one release ago the same risk was
+named out loud — *an optional mechanism nobody switches on is worth nothing.*
+
+The information was never missing. `runtime.Session` has recorded every tool call and its
+outcome the whole time; it had no wire to the harness's evidence channel. Two halves of one
+package that did not talk. `Session.tool()` now feeds the channel directly, at
+`<root>/config/evidence.json` — the same file and shape `lasermind/mcp-server.mjs` already
+uses, so a machine running both surfaces has one observed channel rather than two that
+disagree.
+
+The default this inverts: *assume nothing is observed unless the caller says so* → *observe
+whatever the runtime already knows.*
+
+Two failures it had to avoid, pulling in opposite directions:
+
+- **False credit.** A counter carrying thousands of outcomes from earlier work must not make
+  an idle run look corroborated. Corroboration is an *advance* between two checks, never a
+  total, and the baseline is frozen when the run begins.
+- **False accusation.** A bare `Harness` with no runtime attached must not read as dishonest.
+  The first version broke exactly that — the counter is shared across the machine, so a
+  harness in one process saw counts written by another and reported itself instrumented,
+  earning `unbacked` for having done nothing wrong. `test_unbacked` caught it, which is what
+  it exists for: uninstrumented is not the same as unbacked.
+
+The rule that satisfies both: the channel is live for a run only if it moved *during* that
+run. Liveness counts every outcome including failures — a run whose work all failed is the
+most instrumented case there is, and must read as live so `unbacked` can speak.
+
+### a fix: `scores.evidence` could not report what it was named for
+
+`phronesis()` called `_anchor()` a second time to fill this field, and `_anchor()` answers
+*"was the interval since the last check backed by observed work"*. `phronesis()` runs after
+the last check, so that interval is empty by construction. Measured on a six-check run with
+every check corroborated: **corroborated 6 of 6, evidence 0.5.** It also incremented `checks`
+on the way past, inflating the denominator of the very rate it should have been reporting.
+
+It now reports the run's corroboration rate. Same shape as the server's `anchored()` memo
+bug found two days ago — a field reported on every call that structurally could not carry
+its own meaning, and that nobody read closely enough to notice.
+
+### thresholds have to keep saying why
+
+`corpus_facts.py` measures the distributions the shipped constants were chosen from, and
+`test_thresholds_still_fit.py` fails the build when the evidence moves out from under one.
+
+This has already gone wrong once. The `repetition >= 3` docstring quoted 9.7 / 2.6 / 1.0
+percent, measured before 248 of 680 contexts turned out to be test fixtures; the true figures
+were 12.0 / 7.2 / 6.0. The tail — exactly the part that threshold reads — was more than five
+times heavier than the code claimed, and nothing anywhere compared the claim to the corpus.
+
+The constants do **not** move on their own. An adaptive threshold makes every earlier reading
+incomparable with every later one, and comparability is the product. The gate measures and
+fails; a human decides whether the constant follows. A constant may also sit deliberately off
+its elbow — `stall_window` is 4 where the elbow is 3, chosen on precision — and the reason is
+recorded with the fact, so a recorded decision never reads as an error.
+
+## 0.46.0 - 2026-08-06
+
+### two decisions, split apart
+
+laserbrain was making two decisions with one rule, and they have opposite tolerances for
+being wrong.
+
+**Learning** — what is happening, what to try next: `narrow`, `finish`, `continue`. Being
+wrong costs a suggestion nobody had to take, and self-report is the *right* input, because
+it is the only thing that knows intent.
+
+**Control** — should this run continue at all: `stop`, `verify`. Being wrong kills a run
+that was working, or lets a dead one run on. Here the agent's own account is the worst
+available input, because the agent is the subject of the decision.
+
+They were not merely blended. The stopping rules were *conditioned* on self-report:
+`abandon` requires `closed <= 0`, so an agent that types a falling distance is never told to
+stop, however little it does. The strongest control verdict in the instrument was asking the
+agent's permission to fire.
+
+`phronesis()` now returns a `control` key beside `verdict`. Every input to it had to pass
+one question — *can the agent silence this rule by typing different numbers, without doing
+different work?*
+
+| admitted | why |
+|---|---|
+| `checks`, `budget` | the harness counts calls; nothing typed changes a count |
+| `observed_any`, `corroborated` | tool outcomes, recorded from what actually ran |
+| `prior_sessions` | how many earlier sessions opened this context |
+| `goal_drifts`, `regrounds` | overlap against a ground frozen at first call |
+
+Everything downstream of the typed `distance` — closure, pace, flat streaks, stalls, and the
+store's repetition and ceiling, which are counted over typed spellings — is barred. The
+admitted set is published on every call as `control.reads`, so a future rule cannot quietly
+admit a typed input.
+
+`verdict` is **unchanged**: same rules, same thresholds, same order. This is additive.
+
+Two control rules drop a self-report condition their verdict twins carry, so control is
+strictly louder than the matching verdict. That is the measurable claim — where the two
+disagree is precisely where self-report was carrying the decision.
+
+### the honest part
+
+Most callers never call `saw()`, so control usually has nothing observed to work from. It
+says so: `control.observed` is `false` and the reason reads *"treat it as the absence of a
+signal, not as an all-clear"* rather than implying evidence it does not have. That is not a
+defect of the method — it is the measurement of how much of this instrument has been resting
+on self-report, now visible on every call instead of inferable from nothing.
+
+Both decisions are written to the same drift-log row, with agreement precomputed. `anchored`
+shipped reported-but-never-logged and could therefore sit structurally broken for its entire
+life, found only by instrumenting from scratch; the disagreement rate here is a grep from day
+one. If the two never disagree, control is ceremony, and the log will say so.
+
+Credit again to Prime Intellect's harness, where `shouldAutonomouslyContinue` decides on
+external gates and never once consults the model's opinion of how it is going.
+
+## 0.45.0 - 2026-08-06
+
+### a budget can stop a run, and it does not need to be right
+
+Every judgment laserbrain makes reasons about the WORK — reachable, right problem, goal too
+large — and each can be wrong; published precision on individual fires is 9-14.6%. The
+STOPPING decision was being made with those: `abandon` says "this is not reachable" on a
+1-in-7 hit rate.
+
+Read Prime Intellect's harness the same day. Its continuation decision consults external
+quality gates plus maxTurns / maxTokens / maxContinuations, and the agent's own opinion never
+enters it: *"Do not end the session yourself; the verifier/evaluator decides completion."*
+
+`Calibration(max_checks=N)` adds the same idea. It is checked ABOVE every judgment, because a
+count needs no evidence, no three-check warm-up and no interpretation — it cannot be wrong
+the way a verdict can. A run that would earn `abandon` at twelve reports `over-budget` at
+eight.
+
+DEFAULT OFF, and the cost is named rather than hidden: an optional mechanism nobody switches
+on is worth nothing, which is exactly what happened to `saw()` — built, shipped, and called by
+so little that `anchored` sat structurally broken for its whole life with nothing depending on
+it enough to notice. It is off because arming it would silently change the published
+instrument for every existing caller, which is the one thing a calibration must never do.
+Set it in `Calibration`, or `max_checks` in grammar.json's calibration block.
+
+Mirrored in mcp-server.mjs the same hour. A verdict that exists on one surface and not the
+other is the `unbacked` mistake, and test_judgment_parity now counts nine.
+
+## 0.44.1 - 2026-08-06
+
+`__version__` said 0.43.0 while the wheel said 0.44.0.
+
+The version lives in two files — `pyproject.toml` builds the artifact, `__version__` is what
+anything importing the package reads — and 0.44.0 shipped with only the first bumped. Caught
+by publish.sh's own post-publish check, which imports the released package and compares. The
+release was correct; the number inside it was not.
+
+Two copies of one fact with no gate between them, which is the shape of half the bugs fixed
+in 0.44.0. `test_version_agrees.py` now asserts they match, so the next release cannot repeat
+it before it reaches PyPI rather than after.
+
+## 0.44.0 - 2026-08-06
+
+Five corrections. Four were found by the instrument being pointed at ARC-AGI-3 and losing;
+the fifth had been true since the field shipped and nothing depended on it enough to notice.
+
+### `anchored` could never return 1.0
+
+`anchored()` is side-effecting: it reads the observed-work counter and advances the marker
+so the next check measures the next interval. It was called TWICE per check — once for the
+`anchored` field, once inside the judgment layer building `scores.evidence` — and the second
+call saw the marker the first had just moved:
+
+    ok=11  seen=10  advanced=true     first call, correct
+    ok=11  seen=11  advanced=false    second call, unanchored
+
+The response carried the second. So the term that holds half of Φ returned 0.5 whatever the
+agent did — 0 corroborated across 106 recorded checks, not as a finding but as a structural
+impossibility. `unbacked` reads that field and fired on runs that WERE backed.
+
+It survived because 0.5 is both the default and a plausible reading. "Half the weight rests
+on the agent's own word" is exactly what the docs say it means, so the constant matched the
+expectation. A wrong value that looks like the right value is invisible.
+
+Now memoised per tool call, which is the scope of one reading.
+
+### `stalled` no longer fires while the world is responding
+
+The rule read distance monotonicity alone, which cannot separate being stuck from executing
+a plan — carrying a thing across a room closes nothing on any single step — or from the goal
+itself moving. Measured on five ARC-AGI-3 agent runs: 35 fires of 133 steps, and ALL 35
+reached a state never seen before. Three agents, none told what laserbrain was, independently
+called those fires "purposeful walking rather than confusion".
+
+A flat distance is now a stall only when every check in the window is unbacked by observed
+work. With no evidence at all the behaviour is byte-identical to before, so nothing already
+calibrated moves.
+
+### obeying `narrow` no longer scores as drift
+
+`narrow` says "name the smallest piece and make that the goal". Doing exactly that scored
+goal_score 0.00 and returned goal-drift, then repeated the same counsel. The mechanism that
+makes narrowing legal — `parent_goal` — already worked and simply went unmentioned at the one
+moment an agent needs it. The counsel now names it.
+
+### a subagent can no longer overwrite its parent's ground
+
+`drift` was one module-level object per server process. Subagents share their parent's MCP
+connection, so a child's `reset_task` landed on the parent: the drift log carries 39 rows of
+a child's goal written into the parent's ground, after which the parent scored its own
+byte-identical goal at 0.03.
+
+Nothing in a tools/call identifies the caller, so a key had to be added. `check_state` and
+`reset_task` now take an optional `session`. Omit it and every caller shares one lane,
+byte-identical to before — including the stomping, which is the honest default until callers
+pass a key.
+
+### reading, writing, and the union
+
+- `laserbrain read` and `laserbrain write` — the decoder and the shape-reader, from a
+  terminal. `reading.py` is a port of the site's `lib/reading.ts`, gated by
+  `check-reading-parity.mjs` over shared vectors.
+- `read_text` MCP tool, the companion to `write_grounded`.
+- `fires_first()` — whichever raised the alarm first, the agent or the instrument. On a
+  26-step ARC trace the agent flagged trouble at 8, 12 and 21; the instrument at 11 and 18.
+  Neither set contains the other.
+
+## 0.43.0 - 2026-08-04
+
+Three corrections, each found by the instrument being used rather than by reading it.
+
+### `abandon` no longer fires on the first check of a replaced goal
+
+A reground resets the setpoint — ground, first_goal, dist_hist — and does NOT reset
+`trace`. `phronesis()` read `steps` from the trace and `closed` from the distance history,
+so `steps >= 12 and closed <= 0` was true BY CONSTRUCTION on the first check after any
+reground in a session of twelve or more checks. The strongest counsel the harness owns,
+"stop, this is not reachable", was delivered about work nobody had started yet.
+
+Integrator windup across a setpoint change. `ground_at` records where the current ground
+begins; rules about THIS goal's progress measure from there, and the rules whose subject is
+the SEQUENCE of grounds — oscillation, drifts-against-regrounds — still see the whole
+trace, because scoping those would delete their subject.
+
+Measured against the recorded corpus: 64 regrounds at step >= 13, 3.5% of every check.
+The same divergence existed between this package and the local MCP server, which was
+missing the `judged` guard on the prior-runs branch entirely.
+
+### `oscillating` stops firing on the rhythm of a session
+
+The verdict had two arms: a cycle in the GROUND, and a fallback looking for a cycle in the
+READINGS. Scored against 1,823 recorded readings, the fallback fired 16 times and was
+wrong all 16 — not one had a cycle in the goals. Every window was A A A B: one goal worked,
+then another handed over, with only the verdict sequence repeating, which is what happens
+every time a user speaks. Precision 0.00, and untunable — the period it finds is a property
+of how often a person talks, not of the work.
+
+The fallback is retired. The ground arm stays and is unchanged.
+
+### `unbacked`, a judgment for the half of Φ that is self-report
+
+`anchored` is 0.5 on the published calibration: the goal term is external, `distance` and
+`progress` are whatever the agent typed. It has been reported on every verdict and read by
+nothing, so an agent that simply reports its distance falling keeps Φ low while doing no
+work and collects `advancing` throughout.
+
+`unbacked` fires when work WAS observed, not one check had its self-report corroborated by
+it, and the agent still claims to have closed distance. It stays silent when nothing was
+ever observed: uninstrumented is not the same as unbacked, and an instrument that cannot
+tell them apart should say nothing. Neighbour to `verify`, which fires when the observed
+trace disagrees; this fires when there is nothing to agree with.
+
+Φ, the nine verdicts and the calibration are unchanged. `unbacked` is a judgment, not a
+verdict.
+
 ## 0.42.0 - 2026-08-02
 
 **A schedule that reads a clock instead of a verdict, and three places the instrument was
