@@ -38,8 +38,33 @@ import os
 # returned None for every user who pip-installed the package, and for Diego too — the local
 # hub was not running when this was checked. A field reader nobody could reach shipped as
 # though it worked, because None is also what it returns when the field is simply quiet.
-HUB = os.environ.get('LASERBRAIN_HUB', 'https://phronesis.world/api/laserbrain')
+PUBLIC_HUB = 'https://phronesis.world/api/laserbrain'
+HUB = os.environ.get('LASERBRAIN_HUB', PUBLIC_HUB)
 DEFAULT_URL = f'{HUB}/signal'
+
+# THE PUBLIC HUB WAS DESTROYED 2026-08-03. /signal, /history and /hear are gone; the Worker
+# answers 410 and the machine behind it is not coming back on its own.
+#
+# Measured 2026-08-07 against the shipped 0.48.0, which is what a pip user has today:
+#
+#     read_field()        None after 5.1s     (correct answer, paid for with a stall)
+#     speak_to_field()    TimeoutError 30.1s  (a half-minute hang, then an error naming
+#                                              the timeout rather than the cause)
+#     FieldGround()       distance None       (a ground object that can never have a ground)
+#
+# So the module keeps its shape and stops pretending. Nothing is deleted — read_field still
+# returns None and speak_to_field still raises, exactly as documented — but against the
+# retired public hub they now answer immediately and say why.
+#
+# ONLY when the hub IS the public one. LASERBRAIN_HUB is the whole point of that env var:
+# anyone running their own hub gets the original behaviour untouched, because their hub is
+# not the one that was switched off.
+HUB_RETIRED = HUB == PUBLIC_HUB
+_RETIRED_WHY = (
+    'The public laserbrain field hub was retired on 2026-08-03 — /signal, /history and '
+    '/hear no longer answer. The check, the grammar and drift are unaffected. Point '
+    'LASERBRAIN_HUB at your own hub to use this again.'
+)
 # The continuous terms, in a fixed order so the vector means the same thing every time.
 # hub_signal and field_sig are summaries of the others and are deliberately excluded —
 # including them would weight the same movement twice.
@@ -68,6 +93,9 @@ def read_field(url=DEFAULT_URL, timeout=DEFAULT_TIMEOUT):
     worse than no monitor. Failing open INDISTINGUISHABLY is how a reader pointed at
     localhost:1618 shipped for weeks looking like it worked.
     """
+    # The 5s stall bought nothing: the answer against the retired hub is None every time.
+    if HUB_RETIRED and url == DEFAULT_URL:
+        return None
     try:
         import urllib.request
         req = urllib.request.Request(url, headers={'user-agent': 'laserbrain-sdk'})
@@ -174,6 +202,11 @@ def speak_to_field(words, url=None, timeout=30.0):
     unknown = [w for w in tokens if w.lower() not in _ALL_WORDS]
     if unknown:
         raise ValueError(f'not in the field vocabulary: {", ".join(unknown)} — see field_vocabulary()')
+    # After the word checks, deliberately: a caller who passed seven words has a bug in the
+    # call, and that is the more useful thing to hear first. Only once the call is well
+    # formed is the hub the reason it cannot go anywhere.
+    if HUB_RETIRED and url is None:
+        raise RuntimeError(_RETIRED_WHY)
     body = ' '.join(t.lower() for t in tokens).encode()
     import urllib.request
     req = urllib.request.Request(url or f'{HUB}/hear', data=body,
