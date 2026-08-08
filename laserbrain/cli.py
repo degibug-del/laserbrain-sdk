@@ -275,6 +275,24 @@ def _coverage(args: argparse.Namespace) -> int:
     On 2026-07-24 the honest answer for a full working day was 2% — ten independently
     caught errors, one check. Test coverage became non-negotiable once it was a number
     on a screen; this is the same move, and it is deliberately unflattering.
+
+    READS THE SEGMENTS, since 2026-08-07. It did not, and the number it printed was
+    nonsense as a result.
+
+    `reset_task` archives the finished run into `segments[]` and clears the live fields,
+    so `checks` holds the CURRENT task and nothing before it. Summing only that reported
+    3 steps and 1 check for a session whose true totals were 2,396 checks across 248
+    segments — about 0.1% of the work, printed as the whole of it.
+
+    The trap is that the wrong read is the obvious one, and it fails toward ZERO: the
+    harness looks unattached when it was attached all day. Worse, the harness ADVISES a
+    reset when goal-drift fires, so a drift fire is followed by exactly the operation that
+    archives it out of the naive view. Reading top-level only reports 0 fires, which is
+    indistinguishable from a quiet instrument.
+
+    This has bitten twice from different causes. lb_coverage.py records the other: a
+    substring match on the wrapped MCP response returned False for EVERY fire, costing
+    "204 checks across 10 sessions recorded zero fires".
     """
     import glob, os
     paths = sorted(glob.glob(os.path.expanduser(args.dir + '/*.json')))
@@ -287,9 +305,14 @@ def _coverage(args: argparse.Namespace) -> int:
             d = json.load(open(f))
         except Exception:
             continue
-        steps = d.get('steps', 0) or 0
-        checks, inf = len(d.get('checks', [])), len(d.get('inferred', []))
-        catches = len(d.get('catches', []))
+        # The live fields plus every archived segment. A session that was reset ten times
+        # has ten segments and a nearly empty top level; counting only the top level counts
+        # the last few minutes and calls it the day.
+        blocks = [d] + [s for s in (d.get('segments') or []) if isinstance(s, dict)]
+        steps = sum(int(b.get('steps', 0) or 0) for b in blocks)
+        checks = sum(len(b.get('checks') or []) for b in blocks)
+        inf = sum(len(b.get('inferred') or []) for b in blocks)
+        catches = sum(len(b.get('catches') or []) for b in blocks)
         tot_steps += steps; tot_checks += checks; tot_inf += inf; tot_catch += catches
         rows.append((os.path.basename(f)[:20], steps, checks, inf, catches,
                      (checks / steps) if steps else 0.0))
