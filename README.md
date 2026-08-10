@@ -277,6 +277,15 @@ package and was computed from one machine, 93% one agent,
 Recompute it against your own corpus rather than inheriting these habits — the numbers are a
 starting point, not a constant.
 
+Maintainers: this file is *written by something outside this repo*. phronesis-world's
+prebuild runs `sync-attention.mjs --recalibrate`, which invokes `calibrate_attention.py`
+and rewrites both `lasermind/attention.json` and this package's copy — so an ordinary site
+build leaves `laserbrain/attention.json` modified here. That is deliberate, not a leak: a
+wheel should ship a table describing the corpus at publish time, and the alternative is
+shipping numbers the corpus already outgrew. `publish.sh` refuses to release while anything
+under `laserbrain/` is uncommitted, so a recalibration cannot ship unrecorded. Commit it,
+then publish.
+
 ## The grammar — bring your own
 
 The theorem blesses *a* fixed reference, never a particular vocabulary. The default is
