@@ -118,8 +118,14 @@ run_suite() {
   # dodge this; the loop doesn't. Clearing the cache before every subprocess removes the
   # gap it depends on. JSON mutations were never at risk — grammar.json isn't compiled.
   find . -maxdepth 3 -path '*/__pycache__/*' -type f -delete 2>/dev/null
+  # THE WHOLE SUITE IS A TEST HARNESS, NOT A SESSION. current-arm.json is machine-global,
+  # so any test that drives the real mcp-server inherits whichever arm the human's live
+  # agent is in — and a blinded check_state returns no reading at all, which reads as a
+  # parity failure. That cost a blocked release on 2026-08-10, diagnosed as a surviving
+  # mutation when the suite was simply red. Set here rather than per-test so a test added
+  # next month is covered without anyone remembering this.
   for t in "${SUITE[@]}"; do
-    python3 "$t.py" >/dev/null 2>&1 || return 1
+    LASERBRAIN_ARM=open python3 "$t.py" >/dev/null 2>&1 || return 1
   done
   return 0
 }
@@ -128,7 +134,10 @@ run_suite() {
 echo "  baseline: the suite must be GREEN before anything is mutated"
 if ! run_suite; then
   echo "  ✗ the suite is already failing — fix that before mutation testing means anything"
-  exit 1
+  # EXIT 2, NOT 1. A red baseline and a surviving mutation are different failures with
+  # different fixes, and publish.sh reported both as "a mutation survived" — which sent a
+  # diagnosis off after the mutation set while the real cause was one red test file.
+  exit 2
 fi
 echo "  ✓ green"
 echo

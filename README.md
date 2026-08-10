@@ -19,6 +19,33 @@ no network call, no telemetry.
 pip install laserbrain
 ```
 
+## The same rule, outside Python
+
+laserbrain checks an agent against a goal fixed before it started. The failure it exists
+for — **a reference quietly recomputed from the thing it is supposed to measure** — is not
+peculiar to agents. Documentation regenerated from the API always agrees with it. A
+retrieval gate whose context is chosen by the answer never finds anything ungrounded. A
+test recorded from current behaviour passes on the day it is written and forever after.
+
+Those checks ship as a Node CLI, same discipline, no key and no network beyond the API you
+point it at:
+
+```bash
+npx laserbrain-check try          # all three checks on built-in examples
+npx laserbrain-check docs README.md --base https://your-api
+npx laserbrain-check gate --context chunk1.txt chunk2.txt --answer answer.txt
+npx laserbrain-check anchor --source source.txt --answer answer.txt
+```
+
+`docs` never sends a write — GET, HEAD and OPTIONS only, and there is no flag to change
+that. Exit 0 on pass, flag or no_signal; 1 on block or drift; 2 on bad usage.
+
+The argument underneath both, with the derivation and six times we broke it in working
+code: [The Frozen Reference](https://phronesis.world/papers/frozen-reference/). Every
+threshold in this package was set by a judgement and corrected by a measurement, and
+[the corrections are published](https://phronesis.world/laserbrain/evidence) — including
+the gate that once blocked 74.3% of correct answers.
+
 ## Give it to your agent — MCP, offline, no key
 
 Most agents can't `import laserbrain`. They speak MCP. So the package **is** an MCP server:

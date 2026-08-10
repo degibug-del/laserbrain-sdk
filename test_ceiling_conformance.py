@@ -55,7 +55,12 @@ import { readFileSync } from 'node:fs'
 const inputs = JSON.parse(readFileSync(process.argv[3], 'utf8'))
 const srv = spawn('node', [process.argv[2]], {
   stdio: ['pipe', 'pipe', 'pipe'],
+  // LASERBRAIN_ARM=open: this is a test harness, not a session. The arm file is
+  // machine-global, so without this the run inherits whichever arm the human's live agent
+  // is in — and a blinded check_state returns no `claims` at all, which reads here as 94
+  // inputs "differing" when the two implementations in fact agree.
   env: { ...process.env,
+         LASERBRAIN_ARM: 'open',
          LASERBRAIN_DRIFT_LOG: '/tmp/ceiling-conf-drift.jsonl',
          LASERBRAIN_OUTCOMES_LOG: '/tmp/ceiling-conf-out.jsonl' },
 })

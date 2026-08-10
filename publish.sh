@@ -20,8 +20,59 @@ echo "  about to publish laserbrain ${VERSION}"
 # mode found 5 of 6 mutations surviving, meaning the calibration was protected by one
 # pinned-value file and no behavioural test at all. A release where that is true again
 # should not ship.
+# THE TWO VERSIONS MUST AGREE.
+#
+# pyproject.toml names what PyPI records; __version__ is what `laserbrain version` tells a
+# user and what lands in every audit record. Nothing tied them together, so they could ship
+# apart — and the sibling package did exactly that hours before this was written:
+# laserbrain-check went to npm as 0.1.2 while its CLI reported 0.1.1, so `--version` lied to
+# everyone who ran it. Same trap, same day, caught here before it fired twice.
+py_v=$(grep -m1 '^version' pyproject.toml | sed 's/.*"\(.*\)".*/\1/')
+init_v=$(grep -m1 '__version__' laserbrain/__init__.py | sed "s/.*'\(.*\)'.*/\1/")
+if [ "$py_v" != "$init_v" ]; then
+  echo "  version gate — one number, two files"
+  echo "    FAIL: pyproject.toml says $py_v, laserbrain/__init__.py says $init_v."
+  echo "    Whichever is right, a release where they disagree makes --version lie."
+  exit 1
+fi
+
+# WHAT SHIPS MUST CORRESPOND TO A COMMIT.
+#
+# laserbrain/** goes into the wheel — including grammar.json and attention.json, which are
+# DATA the verdicts read. phronesis-world's prebuild runs sync-attention.mjs --recalibrate
+# and writes attention.json into this package, so an ordinary website build silently
+# changes a shipped data file. On 2026-08-10 a release was one keystroke from carrying a
+# recalibration nobody had recorded.
+#
+# A wheel with no commit behind it cannot be reproduced or explained later, which matters
+# more here than most places: this package's whole argument is that a reading is worth what
+# its provenance is worth. Benign changes are still changes — commit them, then ship.
+dirty=$(git status --porcelain -- laserbrain/ 2>/dev/null)
+if [ -n "$dirty" ]; then
+  echo "  provenance gate — what ships must correspond to a commit"
+  echo "    FAIL: shipped files are modified but not committed:"
+  echo "$dirty" | sed 's/^/      /'
+  echo "    Commit them (or restore them) and run again — a wheel with no commit behind it"
+  echo "    cannot be reproduced later, and attention.json is written by the site build."
+  exit 1
+fi
+
 echo "  mutation gate — proving the suite can go red"
-./mutate.sh >/dev/null 2>&1 || { echo "    FAIL: a mutation survived. Run ./mutate.sh to see which."; exit 1; }
+# CAPTURE THE CODE, DO NOT READ $? AFTER `if !`. Inside `if ! cmd; then`, $? is the status
+# of the negation (always 0), not of cmd — so a `[ $? -eq 2 ]` there can never fire. Written
+# that way first, and caught by running it rather than reading it.
+mut_rc=0; ./mutate.sh >/dev/null 2>&1 || mut_rc=$?
+if [ "$mut_rc" -eq 2 ]; then
+  # Red before a single mutation was applied: nothing was measured. Reporting that as
+  # "a mutation survived" names the wrong cause — it cost a wrong diagnosis on 2026-08-10,
+  # sending a search after the mutation set when one test file was failing.
+  echo "    FAIL: the suite is red BEFORE mutation — nothing was measured."
+  echo "    Run ./mutate.sh to see which file."
+  exit 1
+elif [ "$mut_rc" -ne 0 ]; then
+  echo "    FAIL: a mutation survived. Run ./mutate.sh to see which."
+  exit 1
+fi
 ./mutate.sh --deep >/dev/null 2>&1 || { echo "    FAIL (deep): a mutation survives without test_frozen.py."; echo "    The constants are pinned but not watched by behaviour. Run ./mutate.sh --deep."; exit 1; }
 echo "    ok — every mutation caught, with and without the pin"
 
