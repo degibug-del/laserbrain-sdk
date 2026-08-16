@@ -3,7 +3,7 @@
 THE GAP THIS CLOSES. laserbrain's displacement has three terms and software can only
 honestly supply two. There is no signal in a tool trace for "how far from done", so
 `distance` is spelled by the agent or left as None — and None means a lower-bound Φ and no
-stall detector at all. laserbeast does not have this problem: distance is metres. The
+stall detector at all. laserbot does not have this problem: distance is metres. The
 field is the virtual equivalent — a state space with a position in it.
 
 WHAT THIS DOES AND DOES NOT MEASURE. Be exact, because the tempting overclaim is right

@@ -1,6 +1,6 @@
 # laserbrain
 
-**AI agents are made up of language. laserbrain is a grammatical control layer to reduce
+**AI agents are made up of language. laserbrain is an automatic grammatical control layer to reduce
 agent drift.**
 
 It scores an agent's goal before execution, then checks each step against that fixed
