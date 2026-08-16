@@ -35,7 +35,7 @@ from pathlib import Path as _Path
 
 __all__ = ['Harness', 'Team', 'Verdict', 'PRESETS', 'norm', 'laserscore', 'context_id',
            'verify_audit', 'ground_score', 'MAX_DEPTH']
-__version__ = '0.51.0'
+__version__ = '0.51.1'
 MAX_DEPTH = 50   # nesting deeper than this is a drift signal, not a decomposition
 API_DEFAULT = 'https://laserbrain-mcp.degibug.workers.dev'
 
@@ -886,12 +886,43 @@ class _Run:
                        'Half of this score is your own account of yourself, and nothing has '
                        'agreed with it yet.')
         elif judged and goal_drifts >= 3 and goal_drifts > regrounds and pace <= 0:
+            # IT MAY ONLY COMMAND WITH CORROBORATION. Diego's call, 2026-08-16, after this
+            # branch told an agent to stop working while it was working correctly. Shipped in
+            # lasermind's mcp-server.mjs the same day; this is the same fix in the wheel,
+            # which went out as 0.51.0 without it.
+            #
+            # What happened: a subagent's reset_task had destroyed the parent's ground, so the
+            # parent's byte-identical goal string scored 0.02 five times running. Every input
+            # to the condition above was true and every one was an artifact of the fault. The
+            # counsel read "You are not solving what you set out to solve" — to an agent that
+            # was solving exactly that, and had the goal string to prove it.
+            #
+            # The asymmetry is the point. goal_drifts, regrounds and pace are all computed by
+            # this instrument from the agent's own words, so one fault in it can satisfy all
+            # three at once. `corroborated` counts checks backed by observed work: output
+            # something INDEPENDENT produced. It is the one signal laserbrain cannot
+            # manufacture, and a verdict that can halt an agent should have to pass it.
+            #
+            # Uncorroborated the finding is neither suppressed nor softened into vagueness. It
+            # is stated as what it is — a reading that may be about the instrument — and it
+            # asks the agent to check its ground rather than to abandon its work.
+            backed = self.corroborated
             verdict = 'wrong-problem'
             because = (f'The goal has failed its overlap check {goal_drifts} times against only '
                        f'{regrounds} legitimate re-grounds. The subject keeps moving while the '
-                       f'ground stays put.')
-            counsel = ('You are not solving what you set out to solve. Either re-ground to the goal '
-                       'you actually have now, or return to the original and finish it.')
+                       f'ground stays put.'
+                       + ('' if backed else
+                          f' Nothing independent has agreed with any check in this run '
+                          f'({backed} corroborated), so this pattern is equally consistent '
+                          f'with the ground having moved underneath you.'))
+            counsel = (
+                ('You are not solving what you set out to solve. Either re-ground to the goal '
+                 'you actually have now, or return to the original and finish it.')
+                if backed else
+                ('Check the ground before acting on this. Compare the goal you are passing '
+                 'against the one this run started with — if they are the same, this reading '
+                 'is the thing that is wrong, not your work. If they differ, re-ground to the '
+                 'goal you actually have.'))
         elif oscillations and pace <= 0:
             # `pace <= 0` is load-bearing, and it was found by dogfooding rather than
             # reasoning: this judgment fired on a run whose distance had gone 6→4→3→2

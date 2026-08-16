@@ -1,5 +1,36 @@
 # Changelog
 
+## 0.51.1 - 2026-08-16
+
+### wrong-problem may only command with corroboration
+
+0.51.0 shipped without this and lasermind's server had it the same day, so the wheel and
+the server disagreed about a verdict that can tell an agent to stop working. That is the
+worst kind of divergence to leave: both are "laserbrain" to the person using them.
+
+The verdict told an agent "You are not solving what you set out to solve" while it was
+solving exactly that — a subagent's reset_task had destroyed the parent's ground, so the
+parent's byte-identical goal string scored 0.02 five times running. Every input to the rule
+was true and every one was an artifact of the fault.
+
+The asymmetry is the point: goal_drifts, regrounds and pace are all computed by this
+instrument from the agent's own words, so a single fault can satisfy all three at once.
+`corroborated` counts checks backed by output something INDEPENDENT produced, and
+read_corpus.py already names it "the only signal laserbrain cannot manufacture, and
+therefore the only honest referee". A verdict that can halt an agent now has to pass it.
+
+Uncorroborated, nothing is suppressed and nothing is softened into vagueness. The finding
+is stated as what it is — a reading that may be about the instrument — and it asks the
+agent to compare its current goal against the one the run started with instead of telling
+it to abandon its work. With corroboration the counsel is unchanged, so a rule that is
+right most of the time keeps its teeth.
+
+`test_corroboration.py` pins both halves; reverting turns two assertions red. It also sets
+LASERBRAIN_HOME to a temp dir BEFORE importing laserbrain, because the state tree resolves
+at import time — without that the judgment reads prior-session history from the real config
+directory and the verdict depends on what else happened on the machine that day. The first
+run of the file returned `abandon` instead of `wrong-problem` for exactly that reason.
+
 ## 0.51.0 - 2026-08-16
 
 ### a ground now survives somebody else's reset
