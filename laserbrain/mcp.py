@@ -47,7 +47,57 @@ PROTOCOL = '2024-11-05'
 # One process is one agent's session. The ground lives here, in memory, for exactly as
 # long as the client holds the pipe open — which is the correct lifetime: a ground that
 # outlived the conversation would be measuring a task nobody is doing any more.
-_state: dict[str, Any] = {'harness': None, 'checks': []}
+#
+# THAT PREMISE IS FALSE WHEN AN AGENT SPAWNS SUBAGENTS, and it cost a whole session on
+# 2026-08-16. In-process subagents share this server, so they share this dict — one
+# `harness`, one ground, between a parent and every child it spawns. Every agent is also
+# told, by its own instructions, to call reset_task when it starts a genuinely new task,
+# and a subagent's task is always new. So a child's reset destroyed the PARENT's ground,
+# the child's goal became the reference, and the parent's next check — with a byte-identical
+# goal string — came back `goal-drift` at 0.02, then escalated to `wrong-problem` and told
+# a correctly-working agent to abandon correct work.
+#
+# Reproduced deterministically before it was fixed:
+#
+#     parent grounds                       grounded    1.00
+#     child resets, then checks            grounded    1.00      <- parent's ground gone
+#     parent checks, IDENTICAL goal        goal-drift  0.32
+#
+# That is a frozen-reference violation in the instrument whose whole thesis is that the
+# reference cannot move. PROOF's three adjectives are fixed, findable, UNCHANGEABLE, and
+# reset_task was an unauthenticated delete of somebody else's ground.
+#
+# THE FIX, and why it needs no agent id. The server cannot tell which agent is calling —
+# MCP hands it a tool call and nothing else, and guessing from pids or env vars was already
+# tried and rejected elsewhere in this codebase for good reasons. So identity is not used.
+# Instead a reset SUSPENDS the current ground rather than deleting it, and a later check
+# whose goal matches a suspended ground better than the live one RESUMES it. The ground is
+# found by what it is about, which is what "findable" means.
+#
+# There is no threshold here, deliberately. Resume happens on a COMPARISON — does this goal
+# look more like a ground we already hold than the one currently live — so there is no
+# number to tune and none to justify. And a reset always yields a fresh ground to the very
+# next check, because a reset is a declaration that new work is starting; without that rule
+# a child could never open a ground of its own.
+_state: dict[str, Any] = {'harness': None, 'checks': [], 'suspended': []}
+
+# Bounded so a long session cannot grow this without limit. Oldest goes first: the ground
+# most likely to be resumed is the one most recently suspended.
+MAX_SUSPENDED = 8
+
+
+def _ground_goal(h) -> str:
+    """The goal a harness is grounded on, or '' if it has never been checked."""
+    return str(getattr(getattr(h, '_run', None), 'first_goal_text', '') or '')
+
+
+def _overlap(a: str, b: str) -> float:
+    """The instrument's own grammar, not a new one — the same Jaccard over norm() token
+       sets that _Run.step uses to compute `anchor`. Using anything else here would mean
+       the server resumed grounds by one definition of "the same goal" while the detector
+       scored them by another."""
+    A, B = norm(a), norm(b)
+    return (len(A & B) / len(A | B)) if (A or B) else 0.0
 
 
 def _verdict_dict(v: Verdict) -> dict[str, Any]:
@@ -63,24 +113,73 @@ def _verdict_dict(v: Verdict) -> dict[str, Any]:
 
 
 # ── the tools ────────────────────────────────────────────────────────────────────────
+def _maybe_resume(goal: str) -> str | None:
+    """Swap a suspended ground back in when THIS goal is more that ground's than the live
+       one's. Returns the resumed goal, or None if nothing changed.
+
+       Only runs when a ground is already live. Straight after a reset there is none, and
+       the next check must be allowed to open a fresh one — otherwise a subagent that just
+       declared new work would be handed its parent's reference instead of its own.
+    """
+    live = _state['harness']
+    if live is None or not _state['suspended']:
+        return None
+    live_sim = _overlap(goal, _ground_goal(live))
+    best_i, best_sim = -1, live_sim
+    for i, s in enumerate(_state['suspended']):
+        sim = _overlap(goal, s['goal'])
+        if sim > best_sim:                      # strictly better, so ties keep the live one
+            best_i, best_sim = i, sim
+    if best_i < 0:
+        return None
+    # The live ground is not discarded — it is suspended in turn, so the agent that owns it
+    # reclaims it the same way on its next check. This is what makes a parent and a child
+    # able to alternate indefinitely without either losing its reference.
+    resumed = _state['suspended'].pop(best_i)
+    _state['suspended'].append({'goal': _ground_goal(live), 'harness': live,
+                                'checks': _state['checks']})
+    del _state['suspended'][:-MAX_SUSPENDED]
+    _state['harness'], _state['checks'] = resumed['harness'], resumed['checks']
+    return resumed['goal']
+
+
 def _check_state(args: dict) -> dict:
     goal = str(args.get('goal', '')).strip()
     if not goal:
         return {'error': 'check_state needs a goal — the ground is set from it and frozen'}
+    resumed = _maybe_resume(goal)
     if _state['harness'] is None:
         _state['harness'] = Harness()
     v = _state['harness'].check(goal, str(args.get('progress', 'advancing')),
                                 args.get('distance'))
     out = _verdict_dict(v)
+    if resumed is not None:
+        # Said out loud. A ground silently swapping underneath a caller would be the same
+        # class of problem as the one this fixes — the reference has to be findable, and a
+        # reference that moves without saying so is not.
+        out['resumed_ground'] = resumed
     _state['checks'].append({'goal': goal, **out})
     return out
 
 
 def _reset_task(args: dict) -> dict:
+    """Start a new task. SUSPENDS the current ground rather than deleting it.
+
+       It used to delete. That made it an unauthenticated destroy of whatever ground was
+       live, which in a session with subagents is usually not the caller's — see the note
+       on _state. Suspending keeps reset_task's meaning for the caller (the next check sets
+       a fresh ground) while making it non-destructive for everyone else.
+    """
+    live = _state['harness']
+    if live is not None and _ground_goal(live):
+        _state['suspended'].append({'goal': _ground_goal(live), 'harness': live,
+                                    'checks': _state['checks']})
+        del _state['suspended'][:-MAX_SUSPENDED]
     _state['harness'] = None
     _state['checks'] = []
     return {'ok': True,
-            'note': 'ground and history cleared — your next check_state sets a new ground'}
+            'note': 'ground and history cleared — your next check_state sets a new ground',
+            'suspended': len(_state['suspended'])}
 
 
 def _get_history(args: dict) -> dict:

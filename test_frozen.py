@@ -104,6 +104,76 @@ show('a goal restated near its ground does NOT read as goal-drift',
 show('a goal replaced wholesale DOES read as goal-drift',
      far.reason == 'goal-drift', f'reason={far.reason}')
 
+# ── a ground survives somebody ELSE's reset ──────────────────────────────────
+#
+# Found by dogfooding on 2026-08-16, in a session that spawned subagents. In-process
+# subagents share one MCP server process, so they share one `_state` and therefore one
+# ground. Every agent is also told by its own instructions to call reset_task when it
+# begins a genuinely new task — and a subagent's task is always new. reset_task deleted
+# the live ground unconditionally, so a child wiped its PARENT's reference, and the
+# parent's next check with a BYTE-IDENTICAL goal string came back goal-drift at 0.02,
+# then escalated to `wrong-problem` and told a correctly-working agent to stop.
+#
+# This belongs in test_frozen.py rather than test_mcp_server.py because it is not an MCP
+# detail: PROOF's three adjectives are fixed, findable and UNCHANGEABLE, and an
+# unauthenticated delete of another agent's ground fails the third one. The published
+# claim is "Agents learn. laserbrain does not" — a reference any caller can destroy is
+# not a reference.
+#
+# THIS CAN FAIL: restore the one-line `_state['harness'] = None` body of _reset_task and
+# the first assertion below goes red, reproducing the original 0.02 exactly.
+from laserbrain import mcp as _mcp                                          # noqa: E402
+
+_PARENT = 'Restore the paid laserbrain tiers: Group $29 and Pro $400, rekey PAYMENT_LINKS'
+_CHILD = 'Sweep the workers directory for every price constant and tier definition'
+_OTHER = 'Write the employee handbook and index it'
+
+
+def _fresh():
+    _mcp._state['harness'] = None
+    _mcp._state['checks'] = []
+    _mcp._state['suspended'] = []
+
+
+_fresh()
+_mcp._check_state({'goal': _PARENT, 'distance': 7})       # parent grounds
+_mcp._reset_task({})                                      # a CHILD starts new work
+_child = _mcp._check_state({'goal': _CHILD, 'distance': 5})
+_back = _mcp._check_state({'goal': _PARENT, 'distance': 6})
+
+show("a child's reset_task does not destroy the parent's ground",
+     _back['reason'] != 'goal-drift', f"reason={_back['reason']} score={_back['ground_score']}")
+show('the parent is told its ground was resumed, not moved silently',
+     _back.get('resumed_ground') == _PARENT)
+show('the child still gets a ground of its own',
+     _child['reason'] == 'grounded', f"reason={_child['reason']}")
+
+# The child must be able to come back to ITS ground too, or the fix has merely moved the
+# theft one level down.
+_childback = _mcp._check_state({'goal': _CHILD, 'distance': 4})
+show('the child reclaims its own ground in turn',
+     _childback['reason'] != 'goal-drift', f"reason={_childback['reason']}")
+
+# Resume is a COMPARISON, not a threshold: an unrelated new task after a reset must still
+# open a fresh ground rather than being handed whichever suspended one it least mismatches.
+_fresh()
+_mcp._check_state({'goal': _PARENT, 'distance': 7})
+_mcp._reset_task({})
+_new = _mcp._check_state({'goal': _OTHER, 'distance': 8})
+show('a genuine redirect still grounds fresh, not resumed',
+     _new['reason'] == 'grounded' and 'resumed_ground' not in _new,
+     f"reason={_new['reason']}")
+
+# And the suspended list must stay bounded, or a long session leaks harnesses.
+_fresh()
+for _i in range(_mcp.MAX_SUSPENDED + 5):
+    _mcp._check_state({'goal': f'task number {_i} doing thing {_i}', 'distance': 5})
+    _mcp._reset_task({})
+show('suspended grounds stay bounded',
+     len(_mcp._state['suspended']) <= _mcp.MAX_SUSPENDED,
+     f"held={len(_mcp._state['suspended'])} max={_mcp.MAX_SUSPENDED}")
+_fresh()
+
 print('\n  ' + ('PASS — the instrument is where it was published.' if ok else
                 'FAIL — the published instrument moved. Re-version it deliberately or put it back.'))
 raise SystemExit(0 if ok else 1)

@@ -1,5 +1,50 @@
 # Changelog
 
+## 0.51.0 - 2026-08-16
+
+### a ground now survives somebody else's reset
+
+Found by dogfooding, in a session that spawned subagents, and it is the most serious thing
+this instrument has done: it told a correctly-working agent to stop.
+
+In-process subagents share one MCP server process, so they shared one `_state` — one
+harness, one ground, between a parent and every child it spawned. Every agent is also told
+by its own instructions to call `reset_task` when it begins a genuinely new task, and a
+subagent's task is always new. `reset_task` deleted the live ground unconditionally. So a
+child wiped its parent's reference, the child's goal became the ground, and the parent's
+next check — passing a **byte-identical** goal string — came back `goal-drift` at 0.02.
+After five such checks the control layer escalated to `wrong-problem`: *"You are not
+solving what you set out to solve."* The agent was solving exactly what it set out to
+solve. The reference had moved underneath it.
+
+That is a frozen-reference violation in the instrument whose thesis is that the reference
+cannot move. PROOF's three adjectives are fixed, findable and **unchangeable**, and
+`reset_task` was an unauthenticated delete of another agent's ground.
+
+**What changed.** `reset_task` now SUSPENDS the live ground instead of deleting it, and a
+later check whose goal matches a suspended ground better than the live one RESUMES it,
+reporting `resumed_ground` so the swap is never silent. The caller's own experience of
+`reset_task` is unchanged: the next check still opens a fresh ground.
+
+No agent identity is used, because the server has none to use — MCP hands it a tool call
+and nothing else, and inferring identity from pids or environment variables was already
+tried and rejected in this codebase for reasons that still hold. A ground is instead found
+by what it is *about*, using the same Jaccard-over-`norm()` the detector already computes
+`anchor` with. There is no new threshold: resume happens on a comparison — does this goal
+look more like a ground we already hold than the live one — so there is no number to tune
+and none to justify.
+
+**Still open, and stated rather than quietly left.** The per-session JSON file is still
+keyed by the host's session id, which in-process subagents share, so a parent's file still
+records its children's goals as its own checks. That contaminates coverage and the corpus
+but no longer produces a false verdict. Splitting it needs a discriminator the host must
+provide — `LASERBRAIN_SESSION_ID`, set per subagent — because guessing one is the failure
+mode `session_id_of` already documents.
+
+`test_frozen.py` covers it, including that a child still gets its own ground, that it can
+reclaim it, that a genuine redirect still grounds fresh, and that the suspended list stays
+bounded. Reverting the fix turns two of those red with the original 0.32.
+
 ## 0.48.0 - 2026-08-06
 
 ### a moving goal asks for a reground, not a halt
