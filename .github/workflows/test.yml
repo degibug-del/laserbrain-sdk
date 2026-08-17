@@ -37,7 +37,21 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -e . pytest
+
+      # Three suites test the HOOK LAYER, which lives in its own repo. On the first CI run
+      # they failed looking for a path that exists on one laptop — they had always passed
+      # locally, which is exactly why nobody knew. lasergear is public, so check it out and
+      # let them run for real; without this they would skip, and a permanently-skipped test
+      # is a test nobody is running.
+      - uses: actions/checkout@v4
+        with:
+          repository: degibug-del/lasergear
+          path: .lasergear
+
       - name: pytest
+        env:
+          LASERGEAR_DIR: ${{ github.workspace }}/.lasergear
+          LASERGEAR_COVERAGE: ${{ github.workspace }}/.lasergear/lb_coverage.py
         run: python -m pytest -q
 
   # 2 · THE WHEEL CARRIES ITS DATA.

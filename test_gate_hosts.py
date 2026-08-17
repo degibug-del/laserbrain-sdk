@@ -15,9 +15,21 @@ rather than depending on whichever host the deployment happens to configure.
 """
 import json, os, pathlib, subprocess, sys, tempfile, importlib.util
 
-HOOK = pathlib.Path.home() / (
-    'Library/Mobile Documents/com~apple~CloudDocs/phronesis/lasergear/lb_gate.py'
-)
+# LASERGEAR IS A SEPARATE REPO and this suite reaches into it. That was invisible until CI
+# ran for the first time on 2026-08-17 and three suites failed on a clean runner, looking
+# for /home/runner/Library/Mobile Documents/… — a path that exists on exactly one laptop.
+# They had always passed locally, which is precisely why nobody knew: a machine-dependent
+# test is indistinguishable from a passing one until the machine changes.
+#
+# LASERGEAR_DIR points at a checkout, and CI clones the now-public lasergear repo to supply
+# it. Absent, this exits 77 and the runner reports SKIPPED rather than passed — a check that
+# could not run has not passed, and the two must never print the same.
+_GEAR = pathlib.Path(os.environ.get('LASERGEAR_DIR') or (
+    pathlib.Path.home() / 'Library/Mobile Documents/com~apple~CloudDocs/phronesis/lasergear'))
+HOOK = _GEAR / 'lb_gate.py'
+if not HOOK.exists():
+    print(f'  SKIP  lb_gate.py not found at {HOOK} — set LASERGEAR_DIR to a lasergear checkout')
+    raise SystemExit(77)
 ok = True
 
 

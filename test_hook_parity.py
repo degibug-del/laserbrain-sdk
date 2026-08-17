@@ -33,7 +33,11 @@ def show(name, passed, detail=''):
 
 
 if not HOOK.exists():
-    show('the hook exists', False, str(HOOK))
+    # SKIP, not FAIL — see the note in test_gate_hosts.py. A suite that cannot find the
+    # thing it tests has not failed the thing; it has failed to run, and those are
+    # different facts that must not print the same.
+    print(f'  SKIP  lb_coverage.py not found at {HOOK} — set LASERGEAR_COVERAGE or LASERGEAR_DIR')
+    raise SystemExit(77)
     raise SystemExit(1)
 
 spec = importlib.util.spec_from_file_location('lb_hook', HOOK)

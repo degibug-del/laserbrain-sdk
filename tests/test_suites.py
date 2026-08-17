@@ -18,6 +18,13 @@ SUITES = sorted(p.name for p in ROOT.glob('test_*.py'))
 def test_suite_passes(suite):
     r = subprocess.run([sys.executable, suite], cwd=ROOT, capture_output=True, text=True,
                        timeout=300)
+    # 77 means the suite could not run — its subject lives in another repo and was not
+    # found. That is a SKIP, not a pass: reporting it green would be the same lie as a
+    # green build over a check that never executed, which is the failure this whole project
+    # is organised against. Three suites reach into lasergear; CI clones it so they really
+    # run, and this path is what happens anywhere else.
+    if r.returncode == 77:
+        pytest.skip(r.stdout.strip().splitlines()[-1] if r.stdout.strip() else f'{suite} skipped')
     # The script's own output is the useful failure message — it names the assertion that
     # broke, which an exit code alone cannot.
     assert r.returncode == 0, f'{suite} exited {r.returncode}\n{r.stdout[-3000:]}{r.stderr[-2000:]}'

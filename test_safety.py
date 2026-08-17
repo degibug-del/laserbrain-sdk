@@ -2,9 +2,16 @@
 """test_safety.py — irreversible shell actions denied under always-approve."""
 import json, os, pathlib, subprocess, sys, tempfile
 
-HOOK = pathlib.Path.home() / (
-    'Library/Mobile Documents/com~apple~CloudDocs/phronesis/lasergear/lb_safety.py'
-)
+# See the note in test_gate_hosts.py: lasergear is a separate repo, this reaches into it,
+# and CI on a clean runner is what made that visible. LASERGEAR_DIR overrides; absent, this
+# skips with exit 77 rather than failing, because "could not run" and "ran and failed" are
+# different facts.
+_GEAR = pathlib.Path(os.environ.get('LASERGEAR_DIR') or (
+    pathlib.Path.home() / 'Library/Mobile Documents/com~apple~CloudDocs/phronesis/lasergear'))
+HOOK = _GEAR / 'lb_safety.py'
+if not HOOK.exists():
+    print(f'  SKIP  lb_safety.py not found at {HOOK} — set LASERGEAR_DIR to a lasergear checkout')
+    raise SystemExit(77)
 ok = True
 
 
