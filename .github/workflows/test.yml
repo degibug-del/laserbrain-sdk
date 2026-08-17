@@ -113,6 +113,12 @@ jobs:
           PY
       - name: Nothing else came with it
         run: |
-          n=$(/tmp/clean/bin/pip list --format=freeze | grep -vcE '^(laserbrain|pip|setuptools|wheel)=')
+          # `grep -vc` EXITS 1 WHEN THE COUNT IS ZERO, and zero is the success case here.
+          # Under `bash -e` that killed the step, so this gate could only go green if the
+          # thing it guards against had actually happened — a check that cannot pass, which
+          # is the same family as a check that cannot fail. It failed on its first real run
+          # and that is the only reason it was caught.
+          n=$(/tmp/clean/bin/pip list --format=freeze \
+              | grep -vE '^(laserbrain|pip|setuptools|wheel)=' | wc -l | tr -d ' ')
           echo "extra packages pulled in: $n"
           test "$n" -eq 0 || { /tmp/clean/bin/pip list; exit 1; }
