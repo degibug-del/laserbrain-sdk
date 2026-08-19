@@ -102,6 +102,27 @@ if v.drifting:
 ```
 
 `progress` is one of `advancing | stuck | circling`; `distance` is 0–10 to done.
+
+### Pass `tokens` and it can tell you what drift cost you
+
+```python
+r = client.messages.create(...)
+v = hz.check(goal="build the JSON parser", progress="advancing", distance=6,
+             tokens=r.usage.input_tokens + r.usage.output_tokens)
+```
+
+Optional, and worth one line. With a key, the harness records the count alongside the
+verdict; the account then totals, per run, everything spent **at or after the first drifting
+verdict** — tokens actually spent on a run already off-goal. Read it back at
+`GET /v1/admin/waste`, or ask us for it.
+
+It is a ledger, not an estimate: no rate, no model of what the agent would otherwise have
+done. Runs without counts are **excluded rather than counted as zero**, and the figure states
+how many runs it covers — a number that only errs downward looks conservative and is simply
+wrong.
+
+Nothing about the verdict changes if you leave it out. The check is identical; you just have
+no cost figure at the end of the month.
 Reasons: `advancing`, `grounded`, `goal-drift`, `stalled`, `self-report:stuck/circling`,
 `ungrammatical`. Want a bounded reading instead of a raw distance? `v.ground_score`
 maps Φ to `[0,1]` — `1.0` fully grounded, falling as it drifts (`1/(1+4·Φ)`).

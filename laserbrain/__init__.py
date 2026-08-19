@@ -609,6 +609,22 @@ class Verdict:
     # declaration was made; a number means one was made, measured, and rejected — and the
     # advice says so rather than telling the agent to do what it just did.
     parent_overlap: float = None
+    # THE FROZEN GROUND, RETURNED ON EVERY VERDICT — not only when one fires.
+    #
+    # Until 2026-08-18 the ground came back only inside a firing `goal-drift`, buried in
+    # `why`. So an agent on a healthy step never saw the goal it started with, and the
+    # advice could say "return to the goal you started with" without saying what that was.
+    #
+    # That made re-presentation conditional on a detector with 4/50 published precision,
+    # while the mechanism measured to work is unconditional: re-presenting the ground at
+    # every step took rule survival from 0/8 chains to 8/8, with no detector in the loop.
+    # A generic reminder to be careful, fired just as often, scored 0/6 — exhortation is
+    # not transmission.
+    #
+    # It is close to free. Placed ahead of anything that varies per step it is a stable
+    # prefix billing as cache read at 0.10x rather than cache write at 1.25x; measured
+    # 11.9% CHEAPER than carrying no constraint at all. Clients should render it first.
+    ground: str = None
     # The introspection ceiling, read off the agent's own words rather than its events.
     #
     # `anchored` asks whether observed work backs the claim; this asks whether the agent
@@ -1298,11 +1314,13 @@ class _Run:
                 self._osc = True
                 what = ('You have returned to the same goals in a repeating order'
                         if of == 'ground' else 'Your reading has cycled')
-                return Verdict(True, 'oscillating', round(phi, 2),
-                               f'{what} with period {p} — you have been told to return and have '
-                               f'come back to the same place. Re-ground explicitly instead of '
-                               f'returning again.', why or f'period-{p} {of} cycle', score,
-                               self._anchor())
+                osc = Verdict(True, 'oscillating', round(phi, 2),
+                              f'{what} with period {p} — you have been told to return and have '
+                              f'come back to the same place. Re-ground explicitly instead of '
+                              f'returning again.', why or f'period-{p} {of} cycle', score,
+                              self._anchor())
+                osc.ground = getattr(self, 'first_goal_text', None)
+                return osc
             if not p:
                 self._osc = False
             v = Verdict(drifting, reason, round(phi, 2), advice, why, score, self._anchor(),
@@ -1313,6 +1331,11 @@ class _Run:
             # to tell those apart to ever settle what the right measure is.
             if parent_overlap is not None:
                 v.parent_overlap = round(parent_overlap, 2)
+            # Stamped here rather than on the individual return paths: emit() is the single
+            # exit, and the file already records what happens otherwise — "putting it on the
+            # individual return paths is how the first version of the user-turn fix came to
+            # sit in dead code, written into one branch of two".
+            v.ground = getattr(self, 'first_goal_text', None)
             return v
 
         goal = str(goal or '').strip()
