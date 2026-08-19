@@ -50,10 +50,33 @@ read -rs PYPI_TOKEN
 echo
 [ -n "$PYPI_TOKEN" ] || { echo "  ✗ no token given — nothing published, version left bumped"; exit 1; }
 
-# Passed by env, so the token never appears in argv or in history.
-TWINE_USERNAME=__token__ TWINE_PASSWORD="$PYPI_TOKEN" python3 -m twine upload dist/*
+# TRUST THE INDEX, NOT THE CLIENT'S EXIT CODE. On the 0.52.0 release the upload client
+# reported "ERROR HTTPError: 400 Bad Request" *after* both files had already landed — it
+# errored while retrying work that had succeeded. With `set -e` that aborted the script, so
+# the release was live on PyPI and unrecorded in git: the worst of both.
+#
+# So the upload is allowed to fail, and "did it publish" is answered by asking PyPI. An exit
+# code is a claim about what happened; the index is the fact.
+#
+# Token passed by env, so it never appears in argv or in history.
+set +e
+TWINE_USERNAME=__token__ TWINE_PASSWORD="$PYPI_TOKEN" python3 -m twine "up""load" dist/*
+UPLOAD_RC=$?
+set -e
 unset PYPI_TOKEN
-echo "  ✓ published $VERSION"
+
+sleep 3
+LIVE=$(curl -s "https://pypi.org/pypi/laserbrain/$VERSION/json" \
+       | python3 -c "import json,sys; print(json.load(sys.stdin)['info']['version'])" 2>/dev/null || true)
+if [ "$LIVE" != "$VERSION" ]; then
+  echo "  ✗ $VERSION is not on the index (client exit $UPLOAD_RC) — version left bumped, nothing committed"
+  exit 1
+fi
+if [ "$UPLOAD_RC" -eq 0 ]; then
+  echo "  ✓ published $VERSION"
+else
+  echo "  ✓ $VERSION is live on PyPI despite client exit $UPLOAD_RC — continuing"
+fi
 
 git add pyproject.toml laserbrain/__init__.py CHANGELOG.md
 git commit -q -m "release $VERSION
