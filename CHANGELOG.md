@@ -28,9 +28,13 @@ stamped, including the `oscillating` early return.
 
 Nothing else moves. No verdict changes, no threshold changes, `grammar.json` untouched.
 
-**It is close to free.** Placed ahead of anything that varies per step, the ground is a
-stable prefix billing as cache read at 0.10x rather than cache write at 1.25x — measured
-11.9% *cheaper* than carrying no constraint at all. Clients should render it first.
+**Correction, 2026-08-19 — the cost claim in this entry is withdrawn.** It read "11.9%
+cheaper than carrying no constraint at all". That came from a cache-position test that
+did not replicate: the identical manipulation measured -11.9% and then +5.9%, with
+within-arm variance up to 101% of the mean and no contrast clearing |t| = 2. Sixteen
+links per arm cannot resolve a 10% effect at that spread — about 250 would be needed.
+**What this change costs is unmeasured.** The reason for making it is unaffected:
+0/8 relayed chains held a constraint without it, 8/8 with it, scored in plain code.
 
 `test_ground_returned.py` reads the field on every reason a run can produce — grounded,
 advancing, goal-drift, self-report, ungrammatical — because this is the class of property

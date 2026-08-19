@@ -621,9 +621,17 @@ class Verdict:
     # A generic reminder to be careful, fired just as often, scored 0/6 — exhortation is
     # not transmission.
     #
-    # It is close to free. Placed ahead of anything that varies per step it is a stable
-    # prefix billing as cache read at 0.10x rather than cache write at 1.25x; measured
-    # 11.9% CHEAPER than carrying no constraint at all. Clients should render it first.
+    # WHAT IT COSTS IS UNMEASURED, and an earlier version of this comment claimed
+    # otherwise. It said 11.9% cheaper than carrying no constraint, from a cache-position
+    # test that did not replicate: the identical manipulation measured -11.9% one day and
+    # +5.9% the next, within-arm variance reached 101% of the mean, and no contrast
+    # cleared |t| = 2. Sixteen links per arm cannot resolve a 10% effect at that spread;
+    # roughly 250 would be needed. Placing this ahead of per-step varying content should
+    # still help in principle, but it has not been demonstrated.
+    #
+    # The reason for the field is untouched: unconditional re-presentation takes rule
+    # survival from 0/8 relayed chains to 8/8, scored by substring match in plain code
+    # with no judge and no billing involved.
     ground: str = None
     # The introspection ceiling, read off the agent's own words rather than its events.
     #
