@@ -1,5 +1,46 @@
 # Changelog
 
+## 0.52.0 - 2026-08-18
+
+### the frozen ground comes back on every verdict, not only when one fires
+
+Until now the ground was returned only inside a firing `goal-drift`, buried in `why`. An
+agent on a healthy step never saw the goal it started with, and the advice could read
+"return to the goal you started with" without saying what that goal was.
+
+So re-presentation was conditional on the detector firing, and the detector's published
+precision is 4 of 50. The mechanism that was actually measured to work is unconditional:
+
+| | rule survived |
+|---|---|
+| ground re-presented every step, no detector | **8/8 chains** |
+| a generic "honour any standing rule" reminder | 0/6 |
+| nothing | 0/8 |
+
+Exhortation is not transmission. An agent cannot honour a rule it was never handed, and
+telling it to be careful is not handing it the rule.
+
+`Verdict` gains `ground`, defaulting to None so every existing call site keeps working.
+Stamped in `emit()` — the single exit every verdict passes through, and the place this file
+already warns about: *"putting it on the individual return paths is how the first version of
+the user-turn fix came to sit in dead code, written into one branch of two."* Both exits are
+stamped, including the `oscillating` early return.
+
+Nothing else moves. No verdict changes, no threshold changes, `grammar.json` untouched.
+
+**It is close to free.** Placed ahead of anything that varies per step, the ground is a
+stable prefix billing as cache read at 0.10x rather than cache write at 1.25x — measured
+11.9% *cheaper* than carrying no constraint at all. Clients should render it first.
+
+`test_ground_returned.py` reads the field on every reason a run can produce — grounded,
+advancing, goal-drift, self-report, ungrammatical — because this is the class of property
+that regresses silently: nothing errors, no verdict changes, no existing test fails, and the
+field simply stops being populated.
+
+The same change landed in lasermind's `mcp-server.mjs` the same day. Most agents reach
+laserbrain through that server, so shipping only the Python side would have been a half-fix.
+
+
 ## 0.51.1 - 2026-08-16
 
 ### wrong-problem may only command with corroboration
