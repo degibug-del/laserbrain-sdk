@@ -142,6 +142,43 @@ def unwrap_tool_args(tool, args):
     return tool, args
 
 
+def tokens_so_far(ev):
+    """Billable tokens spent in this session up to now, from the host's transcript.
+
+    THE PROBE HAD NO OUTCOME VARIABLE. It is registered to compare what sessions spend with a
+    verdict against what they spend without one, and no row it ever wrote carried a count.
+
+    Cache reads are weighted at a tenth and cache writes at 1.25, matching how they bill.
+    Folding reads in at face value inflates the figure by a number nobody paid — on one
+    session here, 21 billion cache reads against 42 million billable, a factor of 500. A
+    'saving' computed against an unweighted total would be measuring the cache, not the work.
+
+    Returns None when there is no transcript to read, which is honest: absent must stay
+    distinguishable from zero, or a session with no data reads as a session that spent
+    nothing.
+    """
+    path = (ev or {}).get('transcript_path') or (ev or {}).get('transcriptPath')
+    if not path:
+        return None
+    try:
+        total = 0.0
+        with open(path, 'r', errors='replace') as fh:
+            for line in fh:
+                if '"usage"' not in line:
+                    continue
+                try:
+                    u = (json.loads(line).get('message') or {}).get('usage') or {}
+                except Exception:
+                    continue
+                total += (u.get('input_tokens', 0)
+                          + 1.25 * (u.get('cache_creation_input_tokens') or 0)
+                          + 0.10 * (u.get('cache_read_input_tokens') or 0)
+                          + 5.0 * u.get('output_tokens', 0))
+        return int(total)
+    except Exception:
+        return None
+
+
 def session_id_of(ev):
     """session id from a hook event or from any host's <HOST>_SESSION_ID.
 
@@ -443,7 +480,8 @@ class Session:
                 'since': int(self.d.get('steps', 0)) - int(last.get('step') or 0)}
 
     def check(self, goal, progress, distance, drifting, reason=None, phi=None,
-              run=None, run_step=None, anchored=None, goal_score=None, judgment=None):
+              run=None, run_step=None, anchored=None, goal_score=None, judgment=None,
+              tokens=None):
         """A SPELLED check. Inputs are recorded so the session can be replayed under a
         different calibration — see calibrate.py.
 
@@ -496,6 +534,18 @@ class Session:
             rec['anchored'] = anchored
         if goal_score is not None:
             rec['goal_score'] = goal_score
+        # THE PROBE'S OUTCOME VARIABLE, and until 2026-08-19 nothing collected it.
+        #
+        # The blind probe exists to say what a session spent with a verdict against what it
+        # spent without one. Zero of 3,392 drift rows had ever carried a token count, so the
+        # comparison it was registered to make could not be computed from its own data at any
+        # sample size. Assignment worked; there was simply no outcome to assign.
+        #
+        # Cumulative, not per-step: what a step cost is the difference between consecutive
+        # checks, and a difference is recoverable from cumulative counts while the reverse is
+        # not — a dropped row loses one interval instead of corrupting the total.
+        if tokens is not None:
+            rec['tokens'] = int(tokens)
         if judgment:
             rec['judgment'] = judgment
         self.d['checks'].append(rec)
@@ -616,7 +666,11 @@ class Session:
                        v['drifting'], reason=v['reason'], phi=v['phi'],
                        run=v.get('run'), run_step=v.get('run_step'),
                        anchored=v.get('anchored'), goal_score=v.get('goal_score'),
-                       judgment=v.get('judgment'))
+                       judgment=v.get('judgment'),
+                       # Read from the host's own transcript, which is the only first-hand
+                       # record of what was billed. The agent cannot report its own spend and
+                       # a hook cannot ask the API, so this is the one available source.
+                       tokens=tokens_so_far(ev))
             return None
         if kind == 'tool':
             self.tool(tool, args, ok, self_refusal=is_self_refusal(text))
