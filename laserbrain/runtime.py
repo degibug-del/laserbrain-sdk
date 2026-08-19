@@ -777,7 +777,24 @@ def verdict_of(text):
         if depth > 6 or isinstance(x, bool):
             return None
         if isinstance(x, dict):
+            # A WITHHELD VERDICT IS STILL A VERDICT, and this recogniser could not see one.
+            #
+            # `drifting` was the only marker until 2026-08-19. A blind-arm response does not
+            # carry it — it is {blind, arm, run, step, note} — so walk() fell through, found
+            # nothing, and returned {}. Every downstream field then took its default: reason
+            # became 'no-reading', and phi, run, run_step, arm and goal_score were dropped.
+            #
+            # The cost was the probe itself. Since 2026-08-08 every blind session row has been
+            # six empty fields, so the arm that exists to answer the causal question could not
+            # be joined to the drift log it writes — 0 of 106 rows carried `run`. The
+            # experiment was recording nothing about its own units.
+            #
+            # lb_coverage.py's parser already handled this and says so in its own comments.
+            # Two parsers, one of them fixed — the same "written into one branch of two" the
+            # rest of this file keeps warning about.
             if isinstance(x.get('drifting'), bool):
+                return x
+            if x.get('run') and ('arm' in x or 'blind' in x):
                 return x
             for val in x.values():
                 got = walk(val, depth + 1)
