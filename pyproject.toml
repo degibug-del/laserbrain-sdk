@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "laserbrain"
-version = "0.52.0"
+version = "0.53.0"
 description = "AI agents are made up of language. laserbrain is an automatic grammatical control layer to reduce agent drift — it scores an agent's goal before execution, then checks each step against that fixed reference. Works across tools."
 readme = "README.md"
 requires-python = ">=3.9"
@@ -36,7 +36,11 @@ include = ["laserbrain*"]
 # attention.py reports "no calibration installed" rather than throwing — which is precisely
 # why it has to be listed here: a wheel missing it would not fail, it would just decline to
 # answer, on every install, forever, while the repo worked fine.
-laserbrain = ["py.typed", "grammar.json", "attention.json", "workflows/*.json"]
+laserbrain = ["py.typed", "grammar.json", "attention.json", "workflows/*.json",
+              # hosts.json is read by the hooks at runtime. Same reasoning as
+              # grammar.json: without this line the wheel installs hooks that
+              # cannot find it, and they degrade silently rather than failing.
+              "hooks/*.json"]
 
 [project.optional-dependencies]
 # The default grammar has no dependencies and never will. This is opt-in, for agents

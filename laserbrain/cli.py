@@ -472,6 +472,11 @@ def main(argv: Sequence[str] | None = None) -> int:
                     help="spectral connectivity 0-1 from the analyzer, if you have it")
     rd.add_argument("--json", action="store_true", help="machine-readable output")
 
+    ins = sub.add_parser("install", help="wire laserbrain into your agent — MCP server + hooks")
+    ins.add_argument("--host", default="claude", choices=["claude"])
+    ins.add_argument("--dry-run", action="store_true")
+    ins.add_argument("--no-hooks", action="store_true",
+                     help="MCP server only — the detector without the enforcement")
     sub.add_parser("version", help="print the version")
 
     args = p.parse_args(argv)
@@ -498,6 +503,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         # Nothing may print to stdout but JSON-RPC — an MCP client parses it.
         from .mcp import serve
         return serve()
+    if args.cmd == "install":
+        from .install import main as _install
+        argv = ["--host", args.host]
+        if args.dry_run: argv.append("--dry-run")
+        if args.no_hooks: argv.append("--no-hooks")
+        return _install(argv)
     if args.cmd == "version":
         print(f"laserbrain {__version__}")
         return 0
